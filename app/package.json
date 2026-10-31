@@ -31,6 +31,7 @@
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@netlify/plugin-nextjs": "^5.16.5",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^24.19.2",
     "@types/papaparse": "^5.5.2",

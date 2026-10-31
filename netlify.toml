@@ -10,3 +10,9 @@
 [build.environment]
   NODE_VERSION = "22"
   NEXT_TELEMETRY_DISABLED = "1"
+
+# Turns the Next.js build into Netlify functions + static files. Declared
+# explicitly so it runs even if Netlify didn't auto-detect Next.js when the
+# site was created (without it the site publishes nothing and every page 404s).
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
