@@ -487,7 +487,7 @@ export function EventForm({
           <FormSection id="rules" title="Capacity, tickets & rules">
             <div className="space-y-5">
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Capacity" hint="Callers see “At capacity” when confirmations reach this.">
+                <Field label="Capacity" hint="Callers see “At capacity” when confirms reach this.">
                   <Input inputMode="numeric" value={v.capacity} onChange={(e) => set("capacity", e.target.value.replace(/\D/g, ""))} placeholder="No limit" className={errRing(err("capacity"))} />
                   <FieldError msg={err("capacity")} />
                 </Field>

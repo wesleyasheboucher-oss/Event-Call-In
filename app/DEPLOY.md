@@ -55,7 +55,7 @@ It's safe to re-run. Re-running with `--admin` also resets that admin's password
 1. Push this repository to GitHub, GitLab, or Bitbucket.
 2. In Netlify: **Add new site → Import an existing project**, then pick the repo.
    - **Base directory:** `app`. The app lives in this subfolder.
-   - Build command and publish directory come from `app/netlify.toml`, so leave them alone.
+   - Build command and publish directory come from `netlify.toml`, so leave them alone.
 3. **Site configuration → Environment variables**: add `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`, with the same values as `.env.local`.
 4. **Deploy.** Netlify detects Next.js and applies its runtime automatically.
 5. Open the site, sign in, and check that:

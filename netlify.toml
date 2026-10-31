@@ -1,0 +1,12 @@
+# The app lives in app/. Netlify reads this file from the repo root, so the
+# site builds correctly even if "Base directory" isn't set in the Netlify UI.
+# Next.js is detected automatically (SSR, server actions, route handlers, proxy).
+# Secrets go in Netlify → Site configuration → Environment variables (see app/.env.example).
+[build]
+  base = "app"
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"

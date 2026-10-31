@@ -127,7 +127,7 @@ async function Reports(props: PageProps<"/reports">) {
               <tr className="border-y border-border bg-surface-2/60 text-left text-xs text-ink-2">
                 <th className="px-6 py-2.5 font-medium">Caller</th>
                 <th className="px-3 py-2.5 font-medium">Calls logged</th>
-                <th className="px-3 py-2.5 text-right font-medium">Confirmations</th>
+                <th className="px-3 py-2.5 text-right font-medium">Confirms</th>
                 <th className="px-6 py-2.5 text-right font-medium">Notes</th>
               </tr>
             </thead>
@@ -143,7 +143,7 @@ async function Reports(props: PageProps<"/reports">) {
                       <span className="tabular-nums">{c.calls}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-right tabular-nums">{c.confirmations}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{c.confirms}</td>
                   <td className="px-6 py-3 text-right tabular-nums">{c.notes}</td>
                 </tr>
               ))}
