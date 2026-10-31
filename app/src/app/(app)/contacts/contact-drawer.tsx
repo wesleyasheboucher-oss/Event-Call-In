@@ -20,6 +20,7 @@ import {
 import { Button, SectionTitle } from "@/components/ui";
 import { ContactTagsEditor } from "@/components/tags";
 import { ContactDivisionToggle } from "@/components/division";
+import { GuestOfCard } from "@/components/guest-of-card";
 import { formatPhone } from "@/lib/phone";
 import { ContactFields, DuplicateWarning, useDuplicates, validateContact } from "./contact-form";
 
@@ -194,6 +195,12 @@ export function ContactDrawer({
                     }}
                   />
                 </section>
+                <GuestOfCard
+                  hosts={detail.history
+                    .filter((h) => h.guest_of_name)
+                    .slice(0, 3)
+                    .map((h) => ({ name: h.guest_of_name!, phone: h.guest_of_phone, eventName: h.event_name }))}
+                />
                 <QuickStats history={detail.history} />
                 <section>
                   <SectionTitle

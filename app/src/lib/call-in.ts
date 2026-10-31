@@ -13,6 +13,8 @@ export type CallInCell = {
   guest_count: number;
   /** Set when this person is someone's guest; their status follows the host. */
   guest_of_name: string | null;
+  guest_of_phone: string | null;
+  guest_of_contact_id: number | null;
   note_count: number;
 };
 
@@ -24,6 +26,8 @@ export type CallInRow = {
   email: string;
   tag_ids: number[];
   division: number | null;
+  /** 'guest' = came in as someone's plus-one */
+  source: "import" | "walk_in" | "manual" | "guest";
   attended_count: number;
   no_show_count: number;
   /** keyed by event id; missing = not on that event's list */
@@ -80,7 +84,8 @@ export async function getCallInRows(eventIds: number[]): Promise<CallInRow[]> {
                   u.name AS called_by_name,
                   (SELECT COUNT(*) FROM registrations g WHERE g.guest_of = r.id) AS guest_count,
                   (SELECT COUNT(*) FROM call_notes n WHERE n.registration_id = r.id) AS note_count,
-                  hc.first_name || ' ' || hc.last_name AS guest_of_name
+                  hc.first_name || ' ' || hc.last_name AS guest_of_name,
+                  hc.phone AS guest_of_phone, hc.id AS guest_of_contact_id
              FROM registrations r
              LEFT JOIN users u ON u.id = r.called_by
              LEFT JOIN registrations h ON h.id = r.guest_of
@@ -105,6 +110,7 @@ export async function getCallInRows(eventIds: number[]): Promise<CallInRow[]> {
     email: c.email,
     tag_ids: c.tag_ids,
     division: c.division,
+    source: c.source,
     attended_count: c.attended_count,
     no_show_count: c.no_show_count,
     cells: cellsByContact.get(c.id) ?? {},

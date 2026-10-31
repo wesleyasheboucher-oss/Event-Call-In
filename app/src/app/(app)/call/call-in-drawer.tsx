@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronLeft, ChevronRight, Phone, Plus, Send, UserPlus } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Phone, Send, UserPlus } from "lucide-react";
 import type { CallInCell, CallInEvent, CallInRow } from "@/lib/call-in";
 import type { GuestRow } from "@/lib/types";
 import type { RsvpStatus } from "@/lib/status";
@@ -16,6 +16,7 @@ import { GuestsPanel } from "@/components/guests-panel";
 import { RsvpPicker } from "@/components/status";
 import { ContactTagsEditor } from "@/components/tags";
 import { ContactDivisionToggle } from "@/components/division";
+import { GuestOfCard } from "@/components/guest-of-card";
 import { Button, cx, SectionTitle, Textarea } from "@/components/ui";
 import { AddressBlock, ContactHeader, HistoryList, NotesList, PanelSkeleton, QuickStats } from "@/components/contact-panel";
 
@@ -28,6 +29,7 @@ export function CallInDrawer({
   onStatus,
   onPatchCell,
   onDivision,
+  onOpenContact,
   hasPrev,
   hasNext,
   onPrev,
@@ -39,6 +41,8 @@ export function CallInDrawer({
   onStatus: (eventId: number, s: RsvpStatus) => void;
   onPatchCell: (eventId: number, p: Partial<CallInCell>) => void;
   onDivision: (division: number | null) => void;
+  /** Jump to another person's drawer (e.g. a guest's host). */
+  onOpenContact: (contactId: number) => void;
   hasPrev: boolean;
   hasNext: boolean;
   onPrev: () => void;
@@ -177,6 +181,21 @@ export function CallInDrawer({
               <div className="h-7" />
             )}
 
+            {/* Guests: who brought them, with that person's phone */}
+            <GuestOfCard
+              hosts={events
+                .filter((e) => row.cells[e.id]?.guest_of_name)
+                .map((e) => {
+                  const c = row.cells[e.id];
+                  return {
+                    name: c.guest_of_name!,
+                    phone: c.guest_of_phone,
+                    eventName: e.name,
+                    onOpen: c.guest_of_contact_id ? () => onOpenContact(c.guest_of_contact_id!) : undefined,
+                  };
+                })}
+            />
+
             {/* One card per event being worked */}
             <section>
               <SectionTitle>Registration status</SectionTitle>
@@ -197,7 +216,7 @@ export function CallInDrawer({
             <section>
               <SectionTitle>Call notes</SectionTitle>
               {registered.length === 0 ? (
-                <p className="text-sm text-ink-3">Add them to an event above to log notes for it.</p>
+                <p className="text-sm text-ink-3">Set a status for an event above to log notes for it.</p>
               ) : (
                 <div className="rounded-2xl bg-surface-2/60 p-3 ring-1 ring-border">
                   {registered.length > 1 && (
@@ -324,28 +343,21 @@ function EventStatusCard({
         )}
       </div>
 
-      {!cell ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-ink-2">Not on this list yet.</span>
-          <Button size="sm" variant="soft" icon={<Plus className="size-3.5" />} onClick={() => onStatus("no_data")}>
-            Add to list
-          </Button>
-        </div>
-      ) : cell.guest_of_name ? (
+      {cell?.guest_of_name ? (
         <p className="flex items-center gap-2 text-sm text-ink-2">
           <UserPlus className="size-4 text-violet-600" />
-          Coming as <span className="font-medium text-ink">{cell.guest_of_name}</span>&apos;s guest. Their status follows the host.
+          Status follows <span className="font-medium text-ink">{cell.guest_of_name}</span> (their host).
         </p>
       ) : (
         <>
           {/* Phones: 3 + 2 grid with full-size tap targets; wider: one row */}
           <RsvpPicker
-            value={cell.status}
+            value={cell?.status ?? "no_data"}
             onChange={onStatus}
             size="sm"
             className="grid w-full grid-cols-3 gap-0.5 sm:flex [&>button]:min-h-10 sm:[&>button]:min-h-0 sm:[&>button]:flex-1"
           />
-          {e.plus_ones_allowed > 0 && (
+          {cell && e.plus_ones_allowed > 0 && (
             <div className="mt-3">
               <button onClick={openGuests} className="flex items-center gap-1.5 text-xs font-medium text-ink-2 hover:text-ink">
                 <UserPlus className="size-3.5" />

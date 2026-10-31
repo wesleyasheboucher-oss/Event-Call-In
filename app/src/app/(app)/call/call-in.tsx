@@ -4,20 +4,20 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, us
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { toast } from "sonner";
-import { AlertTriangle, Check, Download, MessageSquare, Phone, Plus, Search, Tag as TagIcon, UserPlus, Users, X } from "lucide-react";
+import { AlertTriangle, Check, Download, FileSpreadsheet, FileText, ListFilter, MessageSquare, Phone, Search, Tag as TagIcon, UserPlus, Users, X } from "lucide-react";
 import type { CallInCell, CallInEvent, CallInRow } from "@/lib/call-in";
-import { RSVP, RSVP_STATUSES, type RsvpStatus } from "@/lib/status";
+import { RSVP, type RsvpStatus } from "@/lib/status";
 import { TAG_STYLE, type TagWithCount } from "@/lib/tag-colors";
 import { formatPhone, normalizePhone, telHref } from "@/lib/phone";
 import { ago, daysUntil, fmt, relativeDays } from "@/lib/time";
-import { downloadCsv } from "@/lib/csv";
 import { setRsvp } from "@/app/actions/registrations";
 import { addToEventList } from "@/app/actions/call-in";
 import { EventCover } from "@/components/event-cover";
-import { TagChip } from "@/components/tags";
 import { ContactDivisionMini } from "@/components/division";
 import { Avatar, cx, EmptyState, Select } from "@/components/ui";
 import { StatusMenu, type MenuTarget } from "./status-menu";
+import { StatusFilterDrawer, statusKeyLabel, type StatusFilters } from "./status-filter-drawer";
+import { exportExcel, exportPdf } from "./call-in-export";
 import { CallInDrawer } from "./call-in-drawer";
 
 const PAGE = 100;
@@ -57,13 +57,17 @@ export function CallIn({
   const [query, setQuery] = useState("");
   const q = useDeferredValue(query);
   const [scope, setScope] = useState<Scope>("listed");
-  const [statusFilter, setStatusFilter] = useState<RsvpStatus | "any">("any");
+  const [statusFilters, setStatusFilters] = useState<StatusFilters>({});
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [divisions, setDivisions] = useState<Set<number>>(new Set());
+  const [contactsOnly, setContactsOnly] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState<null | "xlsx" | "pdf">(null);
   const [tagFilter, setTagFilter] = useState<Set<number>>(new Set());
   const [sort, setSort] = useState<Sort>("name");
   const [limit, setLimit] = useState(PAGE);
   const [openId, setOpenId] = useState<number | null>(null);
   const [menu, setMenu] = useState<(MenuTarget & { contactId: number; eventId: number }) | null>(null);
-  const tagsById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
 
   // Changing which events are included updates the URL; the server sends fresh rows.
   const setSelected = (ids: number[]) =>
@@ -79,7 +83,13 @@ export function CallIn({
     const list = rows.filter((r) => {
       const cells = selected.map((e) => r.cells[e.id]).filter(Boolean) as CallInCell[];
       if (scope === "listed" && cells.length === 0) return false;
-      if (statusFilter !== "any" && !cells.some((c) => c.status === statusFilter && !c.guest_of_name)) return false;
+      if (divisions.size && (r.division == null || !divisions.has(r.division))) return false;
+      // "Contacts only": leave out anyone who is someone's plus-one.
+      if (contactsOnly && (r.source === "guest" || cells.some((c) => c.guest_of_name))) return false;
+      for (const e of selected) {
+        const picks = statusFilters[e.id];
+        if (picks?.length && !picks.includes(r.cells[e.id]?.status ?? "no_data")) return false;
+      }
       if (tagFilter.size && !r.tag_ids.some((id) => tagFilter.has(id))) return false;
       if (!text) return true;
       return (
@@ -95,7 +105,7 @@ export function CallIn({
     if (sort === "name") list.sort(byName);
     else list.sort((a, b) => (sort === "least_recent" ? 1 : -1) * lastCalled(a).localeCompare(lastCalled(b)) || byName(a, b));
     return list;
-  }, [rows, selected, scope, statusFilter, tagFilter, q, sort]);
+  }, [rows, selected, scope, statusFilters, divisions, contactsOnly, tagFilter, q, sort]);
 
   // Per-event counts for the column headers / event chips.
   const counts = useMemo(() => {
@@ -148,10 +158,12 @@ export function CallIn({
         return;
       }
       try {
+        // No registration yet is shown as No Data; recording any other status adds them to the list.
         if (!cell) {
+          if (status === "no_data") return;
           const created = await addToEventList(eventId, contactId, status);
           patchCell(contactId, eventId, null, created);
-          if (!opts.silent) toast.success(`${name} added to ${event.name} as ${RSVP[status].label}`);
+          if (!opts.silent) toast(`${name} → ${RSVP[status].label}`, { description: event.name });
           return;
         }
         if (cell.status === status) return;
@@ -188,7 +200,7 @@ export function CallIn({
       viewport: { width: window.innerWidth, height: window.innerHeight },
       personName: `${row.first_name} ${row.last_name}`,
       eventName: event.name,
-      current: cell?.status ?? null,
+      current: cell?.status ?? "no_data",
       contactId: row.contact_id,
       eventId: event.id,
     });
@@ -210,20 +222,27 @@ export function CallIn({
   const openIndex = filtered.findIndex((r) => r.contact_id === openId);
   const openRow = rows.find((r) => r.contact_id === openId) ?? null;
 
-  const exportCsv = () =>
-    downloadCsv(`call-in-${new Date().toISOString().slice(0, 10)}`, filtered, [
-      { header: "First name", value: (r) => r.first_name },
-      { header: "Last name", value: (r) => r.last_name },
-      { header: "Phone", value: (r) => formatPhone(r.phone) },
-      { header: "Email", value: (r) => r.email },
-      ...selected.map((e) => ({
-        header: e.name,
-        value: (r: CallInRow) => (r.cells[e.id] ? RSVP[r.cells[e.id].status].label : "Not on list"),
-      })),
-      { header: "Division", value: (r) => r.division },
-      { header: "Tags", value: (r) => r.tag_ids.map((id) => tagsById.get(id)?.name).filter(Boolean).join(", ") },
-      { header: "Last called", value: (r) => lastCalled(r).slice(0, 16).replace("T", " ") },
-    ]);
+  const activeStatusFilters = selected.filter((e) => statusFilters[e.id]?.length);
+  const filterSummary = [
+    divisions.size ? [...divisions].sort().map((d) => `Div ${d}`).join(" or ") : "",
+    contactsOnly ? "Contacts only" : "",
+    ...activeStatusFilters.map((e) => `${e.name}: ${statusFilters[e.id].map(statusKeyLabel).join(", ")}`),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const runExport = async (kind: "xlsx" | "pdf") => {
+    setExportOpen(false);
+    setExporting(kind);
+    try {
+      if (kind === "xlsx") await exportExcel(filtered, selected);
+      else await exportPdf(filtered, selected, filterSummary ? `Filters: ${filterSummary}` : "");
+    } catch {
+      toast.error("Couldn't create the file. Try again.");
+    } finally {
+      setExporting(null);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-8 lg:py-10">
@@ -325,36 +344,131 @@ export function CallIn({
             </button>
           ))}
         </div>
-        <Select
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value as RsvpStatus | "any");
-            setLimit(PAGE);
-          }}
-          className="h-10 w-auto min-w-0 flex-1 sm:flex-none"
-          aria-label="Filter by status"
+        <button
+          onClick={() => setStatusOpen(true)}
+          className={cx(
+            "flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-3.5 text-sm font-medium ring-1 transition-colors ring-inset sm:flex-none",
+            activeStatusFilters.length ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink",
+          )}
         >
-          <option value="any">Any status</option>
-          <option value="no_data">No Data (not contacted)</option>
-          {RSVP_STATUSES.filter((s) => s !== "no_data").map((s) => (
-            <option key={s} value={s}>
-              {RSVP[s].label}
-            </option>
-          ))}
-        </Select>
+          <ListFilter className="size-4" />
+          Status
+          {activeStatusFilters.length > 0 && (
+            <span className="rounded-full bg-white/20 px-1.5 text-[11px] tabular-nums">{activeStatusFilters.length}</span>
+          )}
+        </button>
         <Select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="h-10 w-auto min-w-0 flex-1 sm:flex-none" aria-label="Sort">
           <option value="name">Sort: Name</option>
           <option value="least_recent">Sort: Oldest call</option>
           <option value="most_recent">Sort: Latest call</option>
         </Select>
+        <div className="relative">
+          <button
+            onClick={() => setExportOpen((o) => !o)}
+            disabled={!!exporting || selected.length === 0}
+            className="flex size-10 items-center justify-center rounded-xl text-ink-2 ring-1 ring-border ring-inset hover:bg-surface-2 disabled:opacity-50"
+            aria-label="Download list"
+            aria-expanded={exportOpen}
+            title="Download list"
+          >
+            <Download className={cx("size-4", exporting && "animate-pulse")} />
+          </button>
+          {exportOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setExportOpen(false)} />
+              <motion.div
+                initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                className="absolute top-12 right-0 z-40 w-60 rounded-2xl bg-surface p-1.5 shadow-[var(--shadow-lift)] ring-1 ring-border"
+              >
+                <div className="px-3 pt-1.5 pb-2 text-xs text-ink-3">
+                  {filtered.length.toLocaleString()} {filtered.length === 1 ? "person" : "people"}: name, division, phone, and a status per event
+                </div>
+                {(
+                  [
+                    ["xlsx", "Excel (.xlsx)", FileSpreadsheet],
+                    ["pdf", "PDF", FileText],
+                  ] as const
+                ).map(([kind, label, Icon]) => (
+                  <button
+                    key={kind}
+                    onClick={() => runExport(kind)}
+                    className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium hover:bg-surface-2"
+                  >
+                    <Icon className={cx("size-4", kind === "xlsx" ? "text-emerald-600" : "text-rose-600")} />
+                    {label}
+                  </button>
+                ))}
+              </motion.div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Division / contacts-only toggles, then active status filters */}
+      <div className="-mx-4 mb-3 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
+        {[4, 6].map((d) => {
+          const on = divisions.has(d);
+          return (
+            <button
+              key={d}
+              aria-pressed={on}
+              onClick={() => {
+                setDivisions((prev) => {
+                  const next = new Set(prev);
+                  if (on) next.delete(d);
+                  else next.add(d);
+                  return next;
+                });
+                setLimit(PAGE);
+              }}
+              className={cx(
+                "inline-flex h-9 shrink-0 items-center rounded-full px-3.5 text-[13px] font-semibold ring-1 transition-colors ring-inset md:h-8",
+                on
+                  ? d === 4
+                    ? "bg-teal-600 text-white ring-teal-600"
+                    : "bg-violet-600 text-white ring-violet-600"
+                  : "bg-surface text-ink-2 ring-border hover:text-ink",
+              )}
+            >
+              Div {d}
+            </button>
+          );
+        })}
+        <span className="mx-1 h-5 w-px shrink-0 bg-border" />
         <button
-          onClick={exportCsv}
-          className="flex size-10 items-center justify-center rounded-xl text-ink-2 ring-1 ring-border ring-inset hover:bg-surface-2"
-          aria-label="Export CSV"
-          title="Export CSV"
+          aria-pressed={contactsOnly}
+          onClick={() => {
+            setContactsOnly((v) => !v);
+            setLimit(PAGE);
+          }}
+          className={cx(
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 transition-colors ring-inset md:h-8",
+            contactsOnly ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink",
+          )}
+          title="Leave out people who are someone's guest"
         >
-          <Download className="size-4" />
+          {contactsOnly && <Check className="size-3.5" strokeWidth={3} />}
+          Contacts only
         </button>
+        {activeStatusFilters.map((e) => (
+          <span
+            key={e.id}
+            className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full bg-accent-soft pr-1 pl-3 text-[13px] text-accent-ink md:h-8"
+          >
+            <button onClick={() => setStatusOpen(true)} className="max-w-[260px] truncate">
+              <span className="font-semibold">{e.name.length > 18 ? `${e.name.slice(0, 16)}…` : e.name}:</span>{" "}
+              {statusFilters[e.id].map(statusKeyLabel).join(", ")}
+            </button>
+            <button
+              onClick={() => setStatusFilters((f) => ({ ...f, [e.id]: [] }))}
+              className="flex size-6 items-center justify-center rounded-full hover:bg-indigo-100"
+              aria-label={`Clear ${e.name} status filter`}
+            >
+              <X className="size-3.5" />
+            </button>
+          </span>
+        ))}
       </div>
 
       {tags.length > 0 && (
@@ -409,7 +523,11 @@ export function CallIn({
             <EmptyState
               icon={<Users className="size-5" />}
               title="Nobody here"
-              body={statusFilter === "no_data" ? "Everyone on these lists has been contacted. Nice work." : "Try a different filter or search."}
+              body={
+                activeStatusFilters.length && activeStatusFilters.every((e) => statusFilters[e.id].join() === "no_data")
+                  ? "Everyone on these lists has been contacted. Nice work."
+                  : "Try a different filter or search."
+              }
             />
           ) : (
             <>
@@ -418,7 +536,7 @@ export function CallIn({
                 <table className="w-full text-sm" style={{ minWidth: 520 + selected.length * 170 }}>
                   <thead>
                     <tr className="border-b border-border text-left align-bottom">
-                      <th className="sticky left-0 z-10 bg-surface py-3 pr-4 pl-5 text-[13px] font-medium text-ink-2">Person</th>
+                      <th className="sticky left-0 z-10 w-[300px] min-w-[260px] bg-surface py-3 pr-4 pl-5 text-[13px] font-medium text-ink-2">Person</th>
                       <th className="px-3 py-3 text-[13px] font-medium text-ink-2">Phone</th>
                       {selected.map((e) => (
                         <EventHeader key={e.id} event={e} counts={counts[e.id]} onRemove={() => toggleEvent(e.id)} />
@@ -446,30 +564,14 @@ export function CallIn({
                               openId === r.contact_id && "bg-accent-soft",
                             )}
                           >
+                            {/* Name on the left, division toggle pinned to the column's right edge so it lines up on every row */}
                             <div className="flex items-center gap-3">
                               <Avatar name={name} size="sm" />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="truncate font-medium">{name}</span>
-                                  <ContactDivisionMini compact contactId={r.contact_id} value={r.division} onChange={(d) => setDivision(r.contact_id, d)} />
-                                  {declined && <span className="size-1.5 shrink-0 rounded-full bg-rose-500" title="Declined an event" />}
-                                </div>
-                                <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-ink-3">
-                                  {r.attended_count + r.no_show_count === 0 ? (
-                                    "New: no past events"
-                                  ) : (
-                                    <>
-                                      Attended {r.attended_count}
-                                      {r.no_show_count > 0 && <span className="text-rose-600">· {r.no_show_count} no-show</span>}
-                                    </>
-                                  )}
-                                  {r.tag_ids.slice(0, 2).map((id) => {
-                                    const t = tagsById.get(id);
-                                    return t ? <TagChip key={id} tag={t} size="xs" className="ml-0.5" /> : null;
-                                  })}
-                                  {r.tag_ids.length > 2 && <span>+{r.tag_ids.length - 2}</span>}
-                                </div>
+                              <div className="flex min-w-0 flex-1 items-center gap-2">
+                                <span className="truncate font-medium">{name}</span>
+                                {declined && <span className="size-1.5 shrink-0 rounded-full bg-rose-500" title="Declined an event" />}
                               </div>
+                              <ContactDivisionMini compact contactId={r.contact_id} value={r.division} onChange={(d) => setDivision(r.contact_id, d)} />
                             </div>
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap">
@@ -514,14 +616,6 @@ export function CallIn({
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="truncate text-[15px] font-semibold">{name}</span>
                           </div>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-ink-3">
-                            {r.attended_count + r.no_show_count === 0 ? "New" : `Attended ${r.attended_count}`}
-                            {r.no_show_count > 0 && <span className="text-rose-600">· {r.no_show_count} no-show</span>}
-                            {r.tag_ids.slice(0, 2).map((id) => {
-                              const t = tagsById.get(id);
-                              return t ? <TagChip key={id} tag={t} size="xs" className="ml-0.5" /> : null;
-                            })}
-                          </div>
                         </div>
                         {r.phone && (
                           <a
@@ -556,6 +650,17 @@ export function CallIn({
         </motion.div>
       )}
 
+      <StatusFilterDrawer
+        open={statusOpen}
+        onClose={() => setStatusOpen(false)}
+        events={selected}
+        value={statusFilters}
+        onChange={(update) => {
+          setStatusFilters(update);
+          setLimit(PAGE);
+        }}
+      />
+
       <StatusMenu
         target={menu}
         onClose={() => setMenu(null)}
@@ -572,6 +677,7 @@ export function CallIn({
         onStatus={(eventId, s) => openRow && setStatus(openRow.contact_id, eventId, s)}
         onPatchCell={(eventId, p) => openRow && patchCell(openRow.contact_id, eventId, p)}
         onDivision={(division) => openRow && setDivision(openRow.contact_id, division)}
+        onOpenContact={setOpenId}
         hasPrev={openIndex > 0}
         hasNext={openIndex >= 0 && openIndex < filtered.length - 1}
         onPrev={() => openIndex > 0 && setOpenId(filtered[openIndex - 1].contact_id)}
@@ -641,17 +747,7 @@ function EventHeader({
 }
 
 function StatusCell({ cell, onClick }: { cell: CallInCell | undefined; onClick: (e: React.MouseEvent) => void }) {
-  if (!cell) {
-    return (
-      <button
-        onClick={onClick}
-        className="inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-ink-3 ring-1 ring-border ring-dashed transition-colors ring-inset hover:bg-surface-2 hover:text-ink md:h-7"
-      >
-        <Plus className="size-3" /> Add
-      </button>
-    );
-  }
-  if (cell.guest_of_name) {
+  if (cell?.guest_of_name) {
     return (
       <button
         onClick={onClick}
@@ -663,26 +759,27 @@ function StatusCell({ cell, onClick }: { cell: CallInCell | undefined; onClick: 
       </button>
     );
   }
-  const s = RSVP[cell.status];
+  const status = cell?.status ?? "no_data";
+  const s = RSVP[status];
   return (
     <button
       onClick={onClick}
       className={cx(
         "inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ring-1 ring-inset transition-[transform,box-shadow] hover:shadow-sm active:scale-95 md:h-7",
         s.chip,
-        cell.status === "declined" && "font-semibold",
+        status === "declined" && "font-semibold",
       )}
     >
       <motion.span
-        key={cell.status}
+        key={status}
         initial={{ scale: 0.4 }}
         animate={{ scale: 1 }}
         transition={{ type: "spring", stiffness: 700, damping: 20 }}
         className={cx("size-1.5 rounded-full", s.dot)}
       />
       {s.label}
-      {cell.guest_count > 0 && <span className="text-[10px] opacity-70">+{cell.guest_count}</span>}
-      {cell.note_count > 0 && <MessageSquare className="size-3 opacity-50" />}
+      {cell && cell.guest_count > 0 && <span className="text-[10px] opacity-70">+{cell.guest_count}</span>}
+      {cell && cell.note_count > 0 && <MessageSquare className="size-3 opacity-50" />}
     </button>
   );
 }

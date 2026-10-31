@@ -3,7 +3,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Plus } from "lucide-react";
+import { Check } from "lucide-react";
 import { RSVP, RSVP_STATUSES, type RsvpStatus } from "@/lib/status";
 import { cx } from "@/components/ui";
 
@@ -13,20 +13,22 @@ export type MenuTarget = {
   viewport: { width: number; height: number };
   personName: string;
   eventName: string;
-  /** null = not on this event's list yet */
-  current: RsvpStatus | null;
+  current: RsvpStatus;
 };
 
 const noop = () => () => {};
 const MENU_W = 232;
-const MENU_H = 290; // header + five options (+ hint when adding)
+const MENU_H = 250; // header + five options; only used to decide whether it fits below
+const GAP = 6;
 
-/** Below the cell, centered, kept inside the window; flips above when near the bottom. */
-function place({ rect, viewport }: MenuTarget) {
+/**
+ * Below the cell, centered, kept inside the window. Near the bottom of the window it
+ * opens above instead, anchored by its bottom edge so it hugs the cell at any height.
+ */
+function place({ rect, viewport }: MenuTarget): { left: number; top?: number; bottom?: number } {
   const left = Math.max(12, Math.min(rect.left + rect.width / 2 - MENU_W / 2, viewport.width - MENU_W - 12));
-  let top = rect.bottom + 6;
-  if (top + MENU_H > viewport.height - 12) top = Math.max(12, rect.top - MENU_H - 6);
-  return { top, left };
+  if (rect.bottom + GAP + MENU_H <= viewport.height - 12) return { left, top: rect.bottom + GAP };
+  return { left, bottom: viewport.height - rect.top + GAP };
 }
 
 /**
@@ -82,7 +84,7 @@ export function StatusMenu({
             animate={sheet ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
             exit={sheet ? { y: "100%" } : { opacity: 0, scale: 0.97 }}
             transition={sheet ? { type: "spring", stiffness: 420, damping: 40 } : { duration: 0.14 }}
-            style={pos ? { top: pos.top, left: pos.left, width: MENU_W } : undefined}
+            style={pos ? { ...pos, width: MENU_W } : undefined}
             className={cx(
               "absolute bg-surface ring-1 ring-border",
               sheet
@@ -94,7 +96,7 @@ export function StatusMenu({
             <div className={cx("px-2.5 pt-1 pb-2", sheet && "px-3")}>
               <div className={cx("truncate font-semibold", sheet ? "text-base" : "text-[13px]")}>{target.personName}</div>
               <div className="truncate text-xs text-ink-3">
-                {target.current === null ? `Not on the ${target.eventName} list yet` : target.eventName}
+                {target.eventName}
               </div>
             </div>
             {RSVP_STATUSES.map((s, i) => {
@@ -115,19 +117,12 @@ export function StatusMenu({
                   <span className={cx("flex-1", s === "declined" && "text-rose-700")}>{RSVP[s].label}</span>
                   {on ? (
                     <Check className="size-4 text-accent" />
-                  ) : target.current === null ? (
-                    <Plus className="size-3.5 text-ink-3" />
                   ) : (
                     !sheet && <kbd className="font-mono text-[10px] text-ink-3">{i + 1}</kbd>
                   )}
                 </button>
               );
             })}
-            {target.current === null && (
-              <p className={cx("px-2.5 pt-1.5 pb-1 text-[11px] text-ink-3", sheet && "px-3")}>
-                Picking a status adds them to this event&apos;s list.
-              </p>
-            )}
           </motion.div>
         </div>
       )}

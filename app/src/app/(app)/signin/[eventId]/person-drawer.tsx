@@ -3,15 +3,16 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
-import { Check, RotateCcw, Send, UserPlus, UserX } from "lucide-react";
+import { Check, RotateCcw, Send, UserX } from "lucide-react";
 import { Drawer } from "@/components/drawer";
 import { addCallNote, fetchRegistrationDetail, type RegistrationDetail } from "@/app/actions/registrations";
 import { GuestsPanel } from "@/components/guests-panel";
 import { ContactTagsEditor } from "@/components/tags";
 import { ContactDivisionToggle } from "@/components/division";
+import { GuestOfCard } from "@/components/guest-of-card";
 import { AddressBlock, ContactHeader, HistoryList, NotesList, PanelSkeleton, QuickStats, SectionTitle } from "@/components/contact-panel";
 import { AttendanceChip, RsvpChip } from "@/components/status";
-import { Button, Chip, Textarea } from "@/components/ui";
+import { Button, Textarea } from "@/components/ui";
 import type { GuestRow } from "@/lib/types";
 import type { AttendanceStatus } from "@/lib/status";
 import type { SignInRow } from "./data";
@@ -131,12 +132,7 @@ export function PersonDrawer({
           />
 
           {detail.guestOf ? (
-            <p className="flex items-center gap-2 text-sm text-ink-2">
-              <Chip className="bg-violet-50 text-violet-700 ring-violet-200">
-                <UserPlus className="size-3" /> Guest
-              </Chip>
-              Came with <span className="font-medium text-ink">{detail.guestOf.name}</span>
-            </p>
+            <GuestOfCard hosts={[{ name: detail.guestOf.name, phone: detail.guestOf.phone, eventName: event.name }]} />
           ) : (
             event.plus_ones_allowed > 0 && (
               <section>

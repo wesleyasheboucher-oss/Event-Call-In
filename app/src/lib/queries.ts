@@ -191,10 +191,10 @@ export async function getGuests(registrationId: number): Promise<GuestRow[]> {
 /** The host whose guest this registration is, if any. */
 export async function getGuestOf(
   registrationId: number,
-): Promise<{ registration_id: number; name: string } | null> {
+): Promise<{ registration_id: number; name: string; phone: string } | null> {
   return (
-    (await get<{ registration_id: number; name: string }>(
-      `SELECT h.id AS registration_id, hc.first_name || ' ' || hc.last_name AS name
+    (await get<{ registration_id: number; name: string; phone: string }>(
+      `SELECT h.id AS registration_id, hc.first_name || ' ' || hc.last_name AS name, hc.phone
          FROM registrations r JOIN registrations h ON h.id = r.guest_of JOIN contacts hc ON hc.id = h.contact_id
         WHERE r.id = ?`,
       [registrationId],
@@ -236,7 +236,7 @@ export async function getContactHistory(contactId: number): Promise<HistoryRow[]
   return all<HistoryRow>(
     `SELECT r.id AS registration_id, e.id AS event_id, e.name AS event_name, e.start_at, e.time_zone,
             e.status AS event_status, e.cover_thumb, r.rsvp, r.attendance, r.walk_in, r.last_called_at,
-            u.name AS called_by_name, hc.first_name || ' ' || hc.last_name AS guest_of_name
+            u.name AS called_by_name, hc.first_name || ' ' || hc.last_name AS guest_of_name, hc.phone AS guest_of_phone
        FROM registrations r JOIN events e ON e.id = r.event_id LEFT JOIN users u ON u.id = r.called_by
        LEFT JOIN registrations h ON h.id = r.guest_of LEFT JOIN contacts hc ON hc.id = h.contact_id
       WHERE r.contact_id = ? ORDER BY e.start_at DESC`,

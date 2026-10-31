@@ -33,6 +33,8 @@ export async function addToEventList(eventId: number, contactId: number, status:
       called_by_name: status !== "no_data" ? user.name : null,
       guest_count: 0,
       guest_of_name: null,
+      guest_of_phone: null,
+      guest_of_contact_id: null,
       note_count: 0,
     };
   });

@@ -31,7 +31,7 @@ export type RegistrationDetail = ContactDetail & {
   registrationNotes: NoteRow[];
   changes: ChangeRow[];
   guests: GuestRow[];
-  guestOf: { registration_id: number; name: string } | null;
+  guestOf: { registration_id: number; name: string; phone: string } | null;
 };
 
 export async function fetchContactDetail(contactId: number): Promise<ContactDetail | null> {

@@ -669,7 +669,7 @@ export function EventForm({
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 300, damping: 30, delay: 0.2 }}
-        className="fixed inset-x-0 bottom-[var(--bottom-nav)] z-40 px-3 md:left-[72px] lg:left-64"
+        className="fixed inset-x-0 bottom-[var(--bottom-nav)] z-40 px-3 md:left-[var(--sidebar-w)]"
       >
         <div className="mx-auto mb-4 flex max-w-3xl items-center gap-3 rounded-2xl bg-surface/90 px-4 py-3 shadow-[var(--shadow-lift)] ring-1 ring-border backdrop-blur sm:mx-auto sm:px-5">
           <span className="hidden flex-1 text-sm text-ink-2 sm:block">

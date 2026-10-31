@@ -43,6 +43,45 @@
   }
 }
 
+/* Desktop sidebar width: icon rail 768–1023px; full from 1024px unless collapsed
+   (data-sidebar on <html>, remembered per browser). Page padding and bottom bars follow it. */
+:root {
+  --sidebar-w: 0px;
+}
+@media (min-width: 768px) {
+  :root {
+    --sidebar-w: 72px;
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --sidebar-w: 256px;
+  }
+  :root[data-sidebar="collapsed"] {
+    --sidebar-w: 72px;
+  }
+}
+
+/* Parts of the sidebar that only show when it's expanded… */
+.sb-only {
+  display: none !important;
+}
+/* …and layout that switches from "icon rail" to "full" when expanded. */
+@media (min-width: 1024px) {
+  :root:not([data-sidebar="collapsed"]) .sb-only {
+    display: revert-layer !important;
+  }
+  :root:not([data-sidebar="collapsed"]) .sb-start {
+    justify-content: flex-start;
+  }
+  :root:not([data-sidebar="collapsed"]) .sb-row {
+    flex-direction: row;
+  }
+  :root:not([data-sidebar="collapsed"]) .sb-rail-only {
+    display: none !important;
+  }
+}
+
 body {
   background: var(--bg);
   color: var(--ink);

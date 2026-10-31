@@ -169,6 +169,7 @@ export type HistoryRow = {
   walk_in: number;
   /** Set when they came as someone's guest. */
   guest_of_name: string | null;
+  guest_of_phone: string | null;
   last_called_at: string | null;
   called_by_name: string | null;
 };

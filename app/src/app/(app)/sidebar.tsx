@@ -10,9 +10,12 @@ import {
   ClipboardCheck,
   Home,
   KeyRound,
+  PanelLeftClose,
+  PanelLeftOpen,
   LogOut,
   MoreHorizontal,
   PhoneCall,
+  Trophy,
   UserCog,
   Users,
 } from "lucide-react";
@@ -25,6 +28,7 @@ const NAV: { href: string; label: string; icon: typeof Home; roles: Role[] }[] =
   { href: "/", label: "Home", icon: Home, roles: ["admin", "caller", "signin"] },
   { href: "/events", label: "Events", icon: CalendarDays, roles: ["admin", "caller", "signin"] },
   { href: "/call", label: "Call In", icon: PhoneCall, roles: ["admin", "caller"] },
+  { href: "/leaderboard", label: "Leaderboard", icon: Trophy, roles: ["admin", "caller", "signin"] },
   { href: "/signin", label: "Sign-in", icon: ClipboardCheck, roles: ["admin", "signin"] },
   { href: "/contacts", label: "Contacts", icon: Users, roles: ["admin"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["admin"] },
@@ -42,14 +46,33 @@ export function Sidebar({ user }: { user: SessionUser }) {
 
   return (
     <>
-      {/* Desktop sidebar: full at ≥1024px, icon-only rail on narrower windows (768–1023px). */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[72px] flex-col border-r border-border bg-surface/70 px-3 py-6 backdrop-blur md:flex lg:w-64 lg:px-4">
-        <Link href="/" className="mb-8 flex items-center gap-2.5 px-1 lg:px-2">
-          <span className="flex size-8 items-center justify-center rounded-xl bg-accent text-white shadow-md shadow-indigo-500/25">
-            <PhoneCall className="size-4" />
-          </span>
-          <span className="hidden text-[15px] font-semibold tracking-tight lg:inline">Call-In</span>
-        </Link>
+      {/* Desktop sidebar: full from 1024px (collapsible to an icon rail), always a rail at 768–1023px. */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[var(--sidebar-w)] flex-col overflow-hidden border-r border-border bg-surface/70 px-3 py-6 backdrop-blur transition-[width] duration-300 md:flex">
+        <div className="mb-8 flex items-center gap-2.5 px-1">
+          <Link href="/" className="flex min-w-0 flex-1 items-center gap-2.5" title="Home">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-accent text-white shadow-md shadow-indigo-500/25">
+              <PhoneCall className="size-4" />
+            </span>
+            <span className="sb-only truncate text-[15px] font-semibold tracking-tight">Call-In</span>
+          </Link>
+          <button
+            onClick={toggleSidebar}
+            className="sb-only flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink"
+            title="Collapse menu"
+            aria-label="Collapse menu"
+          >
+            <PanelLeftClose className="size-4" />
+          </button>
+        </div>
+        {/* Expand control, shown on desktop only while collapsed */}
+        <button
+          onClick={toggleSidebar}
+          className="sb-rail-only mb-3 hidden h-10 items-center justify-center rounded-xl text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink lg:flex"
+          title="Expand menu"
+          aria-label="Expand menu"
+        >
+          <PanelLeftOpen className="size-[18px]" />
+        </button>
         <nav className="flex flex-1 flex-col gap-0.5">
           {items.map((item) => {
             const active = isActive(pathname, item.href);
@@ -59,7 +82,7 @@ export function Sidebar({ user }: { user: SessionUser }) {
                 href={item.href}
                 title={item.label}
                 className={cx(
-                  "relative flex h-11 items-center justify-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors lg:h-10 lg:justify-start",
+                  "sb-start relative flex h-11 shrink-0 items-center justify-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors lg:h-10",
                   active ? "text-ink" : "text-ink-2 hover:text-ink",
                 )}
               >
@@ -71,14 +94,14 @@ export function Sidebar({ user }: { user: SessionUser }) {
                   />
                 )}
                 <item.icon className={cx("relative size-[18px]", active ? "text-accent" : "text-ink-3")} />
-                <span className="relative hidden lg:inline">{item.label}</span>
+                <span className="sb-only relative whitespace-nowrap">{item.label}</span>
               </Link>
             );
           })}
         </nav>
-        <div className="flex flex-col items-center gap-3 rounded-xl py-2 lg:flex-row lg:px-2">
+        <div className="sb-row flex flex-col items-center gap-3 rounded-xl px-1 py-2">
           <Avatar name={user.name} size="md" />
-          <div className="hidden min-w-0 flex-1 lg:block">
+          <div className="sb-only min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{user.name}</div>
             <div className="truncate text-xs text-ink-3">
               {user.title || ROLE_LABEL[user.role]}
@@ -117,6 +140,17 @@ export function Sidebar({ user }: { user: SessionUser }) {
       <MobileTabBar items={items} pathname={pathname} user={user} moreOpen={sheetOpen} setMoreOpen={setSheetOpen} />
     </>
   );
+}
+
+/** Desktop: fold the sidebar to icons (or back). Remembered per browser. */
+function toggleSidebar() {
+  const root = document.documentElement;
+  const collapsed = root.dataset.sidebar !== "collapsed";
+  if (collapsed) root.dataset.sidebar = "collapsed";
+  else delete root.dataset.sidebar;
+  try {
+    localStorage.setItem("callin.sidebar", collapsed ? "collapsed" : "expanded");
+  } catch {}
 }
 
 const MAX_TABS = 4;

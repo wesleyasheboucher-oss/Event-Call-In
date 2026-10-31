@@ -610,7 +610,7 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 120, opacity: 0 }}
             transition={{ type: "spring", stiffness: 420, damping: 36 }}
-            className="fixed inset-x-0 bottom-[var(--bottom-nav)] z-40 px-3 pb-3 md:left-[72px] lg:left-64"
+            className="fixed inset-x-0 bottom-[var(--bottom-nav)] z-40 px-3 pb-3 md:left-[var(--sidebar-w)]"
           >
             <div className="mx-auto flex max-w-2xl items-center gap-1 rounded-2xl bg-ink p-2 text-white shadow-[var(--shadow-lift)]">
               <span className="px-3 text-sm font-medium tabular-nums">{selected.size.toLocaleString()} selected</span>
