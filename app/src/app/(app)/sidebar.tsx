@@ -9,6 +9,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   Home,
+  KeyRound,
   LogOut,
   MoreHorizontal,
   PhoneCall,
@@ -84,6 +85,14 @@ export function Sidebar({ user }: { user: SessionUser }) {
               {user.division != null && ` · Div ${user.division}`}
             </div>
           </div>
+          <Link
+            href="/change-password"
+            className="flex size-8 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink"
+            title="Change password"
+            aria-label="Change password"
+          >
+            <KeyRound className="size-4" />
+          </Link>
           <form action={logout}>
             <button
               className="flex size-8 items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink"
@@ -213,6 +222,14 @@ function MobileTabBar({
                   </Link>
                 );
               })}
+              <Link
+                href="/change-password"
+                onClick={() => setMoreOpen(() => false)}
+                className="flex min-h-13 items-center gap-3.5 rounded-2xl px-4 text-[15px] font-medium text-ink-2 active:bg-surface-2"
+              >
+                <KeyRound className="size-5 text-ink-3" />
+                Change password
+              </Link>
               <form action={logout}>
                 <button className="flex min-h-13 w-full items-center gap-3.5 rounded-2xl px-4 text-[15px] font-medium text-ink-2 active:bg-surface-2">
                   <LogOut className="size-5 text-ink-3" />

@@ -6,6 +6,10 @@ export type User = {
   email: string;
   role: Role;
   title: string;
+  /** digits only; '' when not set. Can be used to sign in. */
+  phone: string;
+  /** 1 = an admin set their password; they must choose their own at next sign-in */
+  must_change_password: number;
   /** 1–7; null for people added before divisions existed */
   division: number | null;
   active: number;
@@ -24,6 +28,7 @@ export type Contact = {
   zip: string;
   notes: string;
   source: "import" | "walk_in" | "manual" | "guest";
+  division: number | null;
   created_at: string;
   updated_at: string;
 };

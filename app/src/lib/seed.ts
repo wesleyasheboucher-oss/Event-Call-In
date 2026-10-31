@@ -31,11 +31,11 @@ export async function seed(exec: Exec) {
   {
     const pw = hashPassword("password");
     const addUser = (...a: unknown[]) =>
-      ins("INSERT INTO users (name, email, password_hash, role, title, division) VALUES (?, ?, ?, ?, ?, ?)", a);
-    const admin = await addUser("Wes Boucher", "admin@example.com", pw, "admin", "Director", 1);
-    const caller1 = await addUser("Dana Ortiz", "caller@example.com", pw, "caller", "Outreach Coordinator", 3);
-    const caller2 = await addUser("Marcus Hill", "marcus@example.com", pw, "caller", "Volunteer Caller", 5);
-    const signin = await addUser("Sam Lee", "signin@example.com", pw, "signin", "Event Host", 3);
+      ins("INSERT INTO users (name, email, password_hash, role, title, division, phone) VALUES (?, ?, ?, ?, ?, ?, ?)", a);
+    const admin = await addUser("Wes Boucher", "admin@example.com", pw, "admin", "Director", 1, "8135550100");
+    const caller1 = await addUser("Dana Ortiz", "caller@example.com", pw, "caller", "Outreach Coordinator", 3, "8135550101");
+    const caller2 = await addUser("Marcus Hill", "marcus@example.com", pw, "caller", "Volunteer Caller", 5, "8135550102");
+    const signin = await addUser("Sam Lee", "signin@example.com", pw, "signin", "Event Host", 3, "8135550103");
     const callers = [admin, caller1, caller2];
 
     for (const c of ["Networking", "Workshop", "Social", "Fundraiser", "Meeting"]) {
@@ -83,6 +83,9 @@ export async function seed(exec: Exec) {
         created,
       );
       contactIds.push(id);
+      const div = rand();
+      if (div < 0.35) await q("UPDATE contacts SET division = 4 WHERE id = ?", [id]);
+      else if (div < 0.65) await q("UPDATE contacts SET division = 6 WHERE id = ?", [id]);
       for (const [name, chance] of [["Volunteer", 0.12], ["VIP", 0.05], ["Donor", 0.1], ["Spanish speaker", 0.06], ["Board member", 0.02], ["Prefers text", 0.07]] as const) {
         if (rand() < chance) await q("INSERT INTO contact_tags (contact_id, tag_id, added_by) VALUES (?, ?, ?)", [id, tagIds[name], admin]);
       }

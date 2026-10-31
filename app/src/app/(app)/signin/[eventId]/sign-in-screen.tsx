@@ -18,6 +18,7 @@ import { AnimatedNumber, ProgressRing } from "./counter";
 import { WalkInDrawer } from "./walk-in-drawer";
 import { PersonDrawer } from "./person-drawer";
 import { CloseOutModal } from "./close-out-modal";
+import { ContactDivisionBadge } from "@/components/division";
 
 export type SignInEvent = {
   id: number;
@@ -380,6 +381,7 @@ export function SignInScreen({ event, initialRows }: { event: SignInEvent; initi
         onClose={() => setOpenId(null)}
         onMark={mark}
         onGuestsChanged={onGuestsChanged}
+        onDivision={(id, division) => patch(id, { division })}
       />
       <WalkInDrawer
         open={walkInOpen}
@@ -451,7 +453,10 @@ const PersonRow = memo(function PersonRow({
           </AnimatePresence>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[16px] font-semibold">{name}</div>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-[16px] font-semibold">{name}</span>
+            <ContactDivisionBadge division={row.division} />
+          </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-ink-2">
             {row.guest_of_name ? (
               <Chip className="bg-violet-50 text-violet-700 ring-violet-200">

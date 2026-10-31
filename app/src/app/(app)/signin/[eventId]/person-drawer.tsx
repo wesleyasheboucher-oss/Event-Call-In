@@ -8,6 +8,7 @@ import { Drawer } from "@/components/drawer";
 import { addCallNote, fetchRegistrationDetail, type RegistrationDetail } from "@/app/actions/registrations";
 import { GuestsPanel } from "@/components/guests-panel";
 import { ContactTagsEditor } from "@/components/tags";
+import { ContactDivisionToggle } from "@/components/division";
 import { AddressBlock, ContactHeader, HistoryList, NotesList, PanelSkeleton, QuickStats, SectionTitle } from "@/components/contact-panel";
 import { AttendanceChip, RsvpChip } from "@/components/status";
 import { Button, Chip, Textarea } from "@/components/ui";
@@ -22,6 +23,7 @@ export function PersonDrawer({
   onClose,
   onMark,
   onGuestsChanged,
+  onDivision,
 }: {
   row: SignInRow | null;
   event: SignInEvent;
@@ -29,6 +31,7 @@ export function PersonDrawer({
   onMark: (row: SignInRow, to: AttendanceStatus) => void;
   /** Guests were added/removed for this host; the screen refreshes their rows. */
   onGuestsChanged: (hostRegistrationId: number) => void;
+  onDivision: (registrationId: number, division: number | null) => void;
 }) {
   const [loaded, setLoaded] = useState<{ id: number; detail: RegistrationDetail | null } | null>(null);
   const [note, setNote] = useState("");
@@ -114,6 +117,12 @@ export function PersonDrawer({
             {row.walk_in ? null : <RsvpChip status={row.rsvp} />}
             <AttendanceChip status={row.attendance} />
           </div>
+
+          <ContactDivisionToggle
+            contactId={row.contact_id}
+            value={row.division}
+            onChange={(division) => onDivision(row.registration_id, division)}
+          />
 
           <ContactTagsEditor
             contactId={detail.contact.id}

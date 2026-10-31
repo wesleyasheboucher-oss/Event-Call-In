@@ -23,6 +23,7 @@ export type CallInRow = {
   phone: string;
   email: string;
   tag_ids: number[];
+  division: number | null;
   attended_count: number;
   no_show_count: number;
   /** keyed by event id; missing = not on that event's list */
@@ -103,6 +104,7 @@ export async function getCallInRows(eventIds: number[]): Promise<CallInRow[]> {
     phone: c.phone,
     email: c.email,
     tag_ids: c.tag_ids,
+    division: c.division,
     attended_count: c.attended_count,
     no_show_count: c.no_show_count,
     cells: cellsByContact.get(c.id) ?? {},

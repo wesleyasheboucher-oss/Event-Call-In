@@ -19,6 +19,7 @@ import {
 } from "@/components/contact-panel";
 import { Button, SectionTitle } from "@/components/ui";
 import { ContactTagsEditor } from "@/components/tags";
+import { ContactDivisionToggle } from "@/components/division";
 import { formatPhone } from "@/lib/phone";
 import { ContactFields, DuplicateWarning, useDuplicates, validateContact } from "./contact-form";
 
@@ -171,6 +172,17 @@ export function ContactDrawer({
                 transition={{ duration: 0.2 }}
                 className="space-y-9 px-6 py-6"
               >
+                <section>
+                  <SectionTitle>Division</SectionTitle>
+                  <ContactDivisionToggle
+                    contactId={detail.contact.id}
+                    value={detail.contact.division}
+                    onChange={(division) => {
+                      setDetail((d) => (d ? { ...d, contact: { ...d.contact, division } } : d));
+                      router.refresh();
+                    }}
+                  />
+                </section>
                 <section>
                   <SectionTitle>Tags</SectionTitle>
                   <ContactTagsEditor

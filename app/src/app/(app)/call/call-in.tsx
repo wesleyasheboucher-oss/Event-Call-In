@@ -15,6 +15,7 @@ import { setRsvp } from "@/app/actions/registrations";
 import { addToEventList } from "@/app/actions/call-in";
 import { EventCover } from "@/components/event-cover";
 import { TagChip } from "@/components/tags";
+import { ContactDivisionMini } from "@/components/division";
 import { Avatar, cx, EmptyState, Select } from "@/components/ui";
 import { StatusMenu, type MenuTarget } from "./status-menu";
 import { CallInDrawer } from "./call-in-drawer";
@@ -203,6 +204,9 @@ export function CallIn({
     return () => io.disconnect();
   }, [filtered.length]);
 
+  const setDivision = (contactId: number, division: number | null) =>
+    setRows((rs) => rs.map((r) => (r.contact_id === contactId ? { ...r, division } : r)));
+
   const openIndex = filtered.findIndex((r) => r.contact_id === openId);
   const openRow = rows.find((r) => r.contact_id === openId) ?? null;
 
@@ -216,6 +220,7 @@ export function CallIn({
         header: e.name,
         value: (r: CallInRow) => (r.cells[e.id] ? RSVP[r.cells[e.id].status].label : "Not on list"),
       })),
+      { header: "Division", value: (r) => r.division },
       { header: "Tags", value: (r) => r.tag_ids.map((id) => tagsById.get(id)?.name).filter(Boolean).join(", ") },
       { header: "Last called", value: (r) => lastCalled(r).slice(0, 16).replace("T", " ") },
     ]);
@@ -446,6 +451,7 @@ export function CallIn({
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2">
                                   <span className="truncate font-medium">{name}</span>
+                                  <ContactDivisionMini compact contactId={r.contact_id} value={r.division} onChange={(d) => setDivision(r.contact_id, d)} />
                                   {declined && <span className="size-1.5 shrink-0 rounded-full bg-rose-500" title="Declined an event" />}
                                 </div>
                                 <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-ink-3">
@@ -505,7 +511,9 @@ export function CallIn({
                       <div className="flex items-center gap-3">
                         <Avatar name={name} size="md" />
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-[15px] font-semibold">{name}</div>
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-[15px] font-semibold">{name}</span>
+                          </div>
                           <div className="mt-0.5 flex flex-wrap items-center gap-1 text-xs text-ink-3">
                             {r.attended_count + r.no_show_count === 0 ? "New" : `Attended ${r.attended_count}`}
                             {r.no_show_count > 0 && <span className="text-rose-600">· {r.no_show_count} no-show</span>}
@@ -530,6 +538,7 @@ export function CallIn({
                         )}
                       </div>
                       <div className="mt-3 space-y-1.5 pl-12">
+                        <ContactDivisionMini contactId={r.contact_id} value={r.division} onChange={(d) => setDivision(r.contact_id, d)} />
                         {selected.map((e) => (
                           <div key={e.id} className="flex items-center gap-2">
                             <span className="min-w-0 flex-1 truncate text-xs text-ink-2">{shortName(e.name)}</span>
@@ -562,6 +571,7 @@ export function CallIn({
         onClose={() => setOpenId(null)}
         onStatus={(eventId, s) => openRow && setStatus(openRow.contact_id, eventId, s)}
         onPatchCell={(eventId, p) => openRow && patchCell(openRow.contact_id, eventId, p)}
+        onDivision={(division) => openRow && setDivision(openRow.contact_id, division)}
         hasPrev={openIndex > 0}
         hasNext={openIndex >= 0 && openIndex < filtered.length - 1}
         onPrev={() => openIndex > 0 && setOpenId(filtered[openIndex - 1].contact_id)}

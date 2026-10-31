@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 import { actionUser } from "@/lib/auth";
 import { get, run } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
-import { isValidEmail, normalizeEmail } from "@/lib/phone";
+import { isValidEmail, normalizeEmail, normalizePhone } from "@/lib/phone";
 import { DIVISIONS, ROLES, type Role } from "@/lib/status";
 
 export type UserInput = {
@@ -14,6 +14,8 @@ export type UserInput = {
   role: Role;
   title: string;
   division: number | null;
+  /** optional; any format, stored as digits. Lets them sign in by phone. */
+  phone: string;
   password?: string;
 };
 export type UserResult = { ok: true } | { ok: false; error: string };
@@ -41,6 +43,12 @@ export async function saveUser(input: UserInput): Promise<UserResult> {
 
   const clash = await get<{ id: number }>("SELECT id FROM users WHERE email = ? AND id <> ?", [email, input.id ?? -1]);
   if (clash) return { ok: false, error: "Someone on the team already uses that email." };
+  const phone = normalizePhone(input.phone);
+  if (phone && phone.length < 10) return { ok: false, error: "Enter a full phone number, with area code." };
+  if (phone) {
+    const phoneClash = await get<{ id: number }>("SELECT id FROM users WHERE phone = ? AND id <> ?", [phone, input.id ?? -1]);
+    if (phoneClash) return { ok: false, error: "Someone on the team already uses that phone number." };
+  }
 
   if (input.id) {
     const current = await get<{ role: Role; active: number }>("SELECT role, active FROM users WHERE id = ?", [input.id]);
@@ -49,28 +57,40 @@ export async function saveUser(input: UserInput): Promise<UserResult> {
       if (input.id === me.id) return { ok: false, error: "You can't remove your own admin role." };
       if (current.active && (await activeAdminCount(input.id)) === 0) return { ok: false, error: "There must be at least one active admin." };
     }
-    await run("UPDATE users SET name = ?, email = ?, role = ?, title = ?, division = ? WHERE id = ?", [
+    await run("UPDATE users SET name = ?, email = ?, phone = ?, role = ?, title = ?, division = ? WHERE id = ?", [
       name,
       email,
+      phone,
       input.role,
       title,
       division,
       input.id,
     ]);
     if (password) {
-      await run("UPDATE users SET password_hash = ? WHERE id = ?", [hashPassword(password), input.id]);
-      // Reset signs them out everywhere else.
-      if (input.id !== me.id) await run("DELETE FROM sessions WHERE user_id = ?", [input.id]);
+      // A password an admin sets for someone else is temporary: they choose their own at next sign-in.
+      const temporary = input.id !== me.id;
+      await run("UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?", [
+        hashPassword(password),
+        temporary ? 1 : 0,
+        input.id,
+      ]);
+      // Reset signs them out everywhere.
+      if (temporary) await run("DELETE FROM sessions WHERE user_id = ?", [input.id]);
     }
   } else {
-    await run("INSERT INTO users (name, email, password_hash, role, title, division) VALUES (?, ?, ?, ?, ?, ?)", [
+    // New people start with a temporary password and choose their own at first sign-in.
+    await run(
+      "INSERT INTO users (name, email, phone, password_hash, role, title, division, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
+      [
       name,
       email,
+      phone,
       hashPassword(password),
-      input.role,
-      title,
-      division,
-    ]);
+        input.role,
+        title,
+        division,
+      ],
+    );
   }
   refresh();
   return { ok: true };

@@ -5,13 +5,25 @@ import { AnimatePresence, motion } from "motion/react";
 import { login } from "@/app/actions/auth";
 import { Button, Card, Field, Input } from "@/components/ui";
 
-export function LoginForm() {
+export function LoginForm({ defaultEmail }: { defaultEmail: string }) {
   const [state, action, pending] = useActionState(login, undefined);
   return (
     <Card className="p-6">
       <form action={action} className="space-y-4">
-        <Field label="Email">
-          <Input name="email" type="email" autoComplete="email" required autoFocus defaultValue="admin@example.com" />
+        <Field label="Email or phone">
+          <Input
+            name="identifier"
+            type="text"
+            inputMode="email"
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+            autoFocus
+            defaultValue={state?.identifier ?? defaultEmail}
+            placeholder="you@example.com or (813) 555-1234"
+          />
         </Field>
         <Field label="Password">
           <Input name="password" type="password" autoComplete="current-password" required />

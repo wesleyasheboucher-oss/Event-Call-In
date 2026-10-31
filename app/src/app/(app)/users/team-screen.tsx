@@ -3,14 +3,23 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { ChevronRight, Plus, Power, UserCog } from "lucide-react";
+import { ChevronRight, Copy, KeyRound, Plus, Power, Sparkles, UserCog } from "lucide-react";
 import { Page, PageHeader } from "@/components/page";
 import { Drawer } from "@/components/drawer";
 import { Avatar, Button, Chip, cx, Field, Input } from "@/components/ui";
 import { DIVISIONS, ROLE_LABEL, ROLES, type Role } from "@/lib/status";
 import { fmt } from "@/lib/time";
+import { formatPhone, normalizePhone } from "@/lib/phone";
 import type { User } from "@/lib/types";
 import { saveUser, setUserActive } from "@/app/actions/users";
+
+/** Easy to read aloud or type: no 0/O, 1/l/I. */
+function temporaryPassword(): string {
+  const words = "maple river cedar harbor meadow summit canyon willow ember coral prairie lantern".split(" ");
+  const pick = () => words[crypto.getRandomValues(new Uint32Array(1))[0] % words.length];
+  const n = 20 + (crypto.getRandomValues(new Uint32Array(1))[0] % 80);
+  return `${pick()}-${pick()}-${n}`;
+}
 
 const ROLE_CHIP: Record<Role, string> = {
   admin: "bg-indigo-50 text-indigo-700 ring-indigo-200",
@@ -139,6 +148,14 @@ export function TeamScreen({ users, meId, activity }: { users: User[]; meId: num
                         "No activity yet"
                       )}
                     </div>
+                    {u.must_change_password === 1 && u.active === 1 && (
+                      <span
+                        className="hidden items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200 ring-inset sm:inline-flex"
+                        title="Signed in with a temporary password; they'll choose their own at next sign-in"
+                      >
+                        <KeyRound className="size-3" /> Temporary password
+                      </span>
+                    )}
                     <DivisionBadge division={u.division} />
                     <Chip className={cx(ROLE_CHIP[u.role], "hidden sm:inline-flex")}>{ROLE_LABEL[u.role]}</Chip>
                     {!u.active && <Chip className="bg-stone-100 text-stone-500 ring-stone-200">Inactive</Chip>}
@@ -162,10 +179,12 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
     email: existing?.email ?? "",
     role: (existing?.role ?? "caller") as Role,
     title: existing?.title ?? "",
+    phone: existing?.phone ? formatPhone(existing.phone) : "",
     division: existing?.division ?? null,
     password: "",
   });
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState<"save" | "active" | null>(null);
 
   const save = async () => {
@@ -174,7 +193,8 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
     const res = await saveUser({ id: existing?.id, ...form, password: form.password || undefined });
     setBusy(null);
     if (!res.ok) return setError(res.error);
-    toast.success(existing ? "Saved" : `${form.name} added to the team`);
+    const temp = form.password && existing?.id !== meId;
+    toast.success(existing ? (temp ? `Password reset. ${form.name.split(" ")[0]} will choose a new one at sign-in.` : "Saved") : `${form.name} added to the team`);
     onClose();
   };
 
@@ -195,7 +215,9 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
       width="sm"
       title={existing ? existing.name : "Add a team member"}
       subtitle={
-        existing ? `Joined ${fmt(existing.created_at, "America/New_York", "MMM d, yyyy")}` : "They'll sign in with this email and password."
+        existing
+          ? `Joined ${fmt(existing.created_at, "America/New_York", "MMM d, yyyy")}`
+          : "They'll sign in with their email or phone, and this password."
       }
       footer={
         <div className="flex items-center gap-2">
@@ -233,6 +255,19 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
         <Field label="Email" required hint={existing ? undefined : "This is what they'll sign in with."}>
           <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </Field>
+        <Field label="Phone" hint="Optional. They can sign in with this or their email.">
+          <Input
+            type="tel"
+            inputMode="tel"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            onBlur={() => {
+              const d = normalizePhone(form.phone);
+              if (d.length === 10) setForm((f) => ({ ...f, phone: formatPhone(d) }));
+            }}
+            placeholder="(813) 555-1234"
+          />
+        </Field>
         <Field label="Position title" required>
           <Input
             value={form.title}
@@ -254,7 +289,7 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
                   type="button"
                   role="radio"
                   aria-checked={on}
-                  onClick={() => setForm({ ...form, division: d })}
+                  onClick={() => setForm((f) => ({ ...f, division: d }))}
                   className={cx(
                     "relative flex h-11 items-center justify-center rounded-xl text-[15px] font-semibold tabular-nums ring-1 transition-colors ring-inset",
                     on ? "text-white ring-accent" : "text-ink-2 ring-border hover:bg-surface-2 hover:text-ink",
@@ -282,7 +317,7 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
                 <button
                   type="button"
                   key={r}
-                  onClick={() => setForm({ ...form, role: r })}
+                  onClick={() => setForm((f) => ({ ...f, role: r }))}
                   className={cx(
                     "relative flex w-full items-start gap-3 rounded-xl px-4 py-3 text-left ring-1 transition-colors",
                     on ? "bg-accent-soft/60 ring-accent" : "ring-border hover:bg-surface-2",
@@ -306,17 +341,70 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
           </div>
         </div>
         <Field
-          label={existing ? "Reset password" : "Password"}
+          label={existing ? (existing.id === meId ? "Change your password" : "Reset password") : "Temporary password"}
           required={!existing}
-          hint={existing ? "Leave blank to keep their current password. Resetting signs them out." : "At least 8 characters."}
+          hint={
+            existing?.id === meId
+              ? "Leave blank to keep your current password."
+              : existing
+                ? "Leave blank to keep their password. A reset signs them out, and they'll choose a new one at next sign-in."
+                : "At least 8 characters. They'll choose their own the first time they sign in."
+          }
         >
-          <Input
-            type="password"
-            autoComplete="new-password"
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-          />
+          <div className="flex gap-2">
+            <Input
+              type={showPassword ? "text" : "password"}
+              autoComplete="new-password"
+              value={form.password}
+              onChange={(e) => {
+                setShowPassword(false);
+                setForm({ ...form, password: e.target.value });
+              }}
+              className={cx(showPassword && "font-mono tracking-wide")}
+            />
+            {existing?.id !== meId && (
+              <Button
+                type="button"
+                variant="secondary"
+                icon={<Sparkles className="size-4" />}
+                onClick={() => {
+                  setForm((f) => ({ ...f, password: temporaryPassword() }));
+                  setShowPassword(true);
+                }}
+              >
+                Generate
+              </Button>
+            )}
+          </div>
         </Field>
+        <AnimatePresence>
+          {showPassword && form.password && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
+            >
+              <div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
+                <span className="min-w-0 flex-1">
+                  Share this with {form.name.split(" ")[0] || "them"} privately. They&apos;ll replace it at sign-in.
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  icon={<Copy className="size-3.5" />}
+                  onClick={() => {
+                    navigator.clipboard?.writeText(form.password);
+                    toast.success("Temporary password copied");
+                  }}
+                >
+                  Copy
+                </Button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <button type="submit" className="hidden" />
         <AnimatePresence>
           {error && (

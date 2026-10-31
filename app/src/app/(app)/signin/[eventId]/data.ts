@@ -7,6 +7,7 @@ export type SignInRow = {
   contact_id: number;
   first_name: string;
   last_name: string;
+  division: number | null;
   phone: string;
   email: string;
   rsvp: RsvpStatus;
@@ -20,7 +21,7 @@ export type SignInRow = {
 };
 
 const SELECT = `
-  SELECT r.id AS registration_id, c.id AS contact_id, c.first_name, c.last_name, c.phone, c.email,
+  SELECT r.id AS registration_id, c.id AS contact_id, c.first_name, c.last_name, c.division, c.phone, c.email,
          r.rsvp, r.attendance, r.walk_in, r.checked_in_at, r.guest_of,
          hc.first_name || ' ' || hc.last_name AS guest_of_name,
          (SELECT COUNT(*) FROM registrations g WHERE g.guest_of = r.id) AS guest_count

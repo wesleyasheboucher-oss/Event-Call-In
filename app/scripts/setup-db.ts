@@ -3,11 +3,12 @@
  *
  *   npm run db:setup                         # schema + storage bucket
  *   npm run db:setup -- --seed               # …plus demo data (empty database only)
- *   npm run db:setup -- --admin=you@org.com --name="Your Name" --password="…" [--title="Director" --division=1]
+ *   npm run db:setup -- --admin=you@org.com --name="Your Name" --password="…" [--title="Director" --division=1 --phone="813-555-1234"]
  *                                            # …plus your first real admin account
  *
  * Reads DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY from the
- * environment or .env.local.
+ * environment or .env.production.local (kept out of `npm run dev`, which
+ * should use the local demo database, never live data).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -16,9 +17,12 @@ import { createClient } from "@supabase/supabase-js";
 import { seed, type Exec } from "../src/lib/seed";
 import { hashPassword } from "../src/lib/password";
 
-try {
-  process.loadEnvFile(".env.local");
-} catch {}
+for (const file of [".env.production.local", ".env.local"]) {
+  try {
+    process.loadEnvFile(file);
+    break;
+  } catch {}
+}
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -29,7 +33,7 @@ const args = Object.fromEntries(
 
 const url = process.env.DATABASE_URL;
 if (!url) {
-  console.error("DATABASE_URL is not set. Add it to .env.local (see .env.example).");
+  console.error("DATABASE_URL is not set. Add it to .env.production.local (see .env.example).");
   process.exit(1);
 }
 
@@ -67,11 +71,14 @@ async function main() {
     const title = typeof args.title === "string" ? args.title : "Administrator";
     const division = typeof args.division === "string" ? Number(args.division) : null;
     if (division !== null && !(division >= 1 && division <= 7)) throw new Error("--division must be 1–7.");
+    let phone = typeof args.phone === "string" ? args.phone.replace(/\D/g, "") : "";
+    if (phone.length === 11 && phone.startsWith("1")) phone = phone.slice(1);
     await sql`
-      INSERT INTO users (name, email, password_hash, role, title, division)
-      VALUES (${name}, ${args.admin.toLowerCase()}, ${hashPassword(password)}, 'admin', ${title}, ${division})
+      INSERT INTO users (name, email, password_hash, role, title, division, phone)
+      VALUES (${name}, ${args.admin.toLowerCase()}, ${hashPassword(password)}, 'admin', ${title}, ${division}, ${phone})
       ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin', active = 1,
-        title = EXCLUDED.title, division = COALESCE(EXCLUDED.division, users.division)`;
+        title = EXCLUDED.title, division = COALESCE(EXCLUDED.division, users.division),
+        phone = CASE WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone ELSE users.phone END`;
     console.log(`✓ Admin account ready: ${args.admin}`);
   }
 

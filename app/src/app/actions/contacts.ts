@@ -5,6 +5,7 @@ import { actionUser } from "@/lib/auth";
 import { all, get, insert, now, run, tx } from "@/lib/db";
 import { isValidEmail, normalizeEmail, normalizePhone } from "@/lib/phone";
 import { rowError, type MappedRow } from "@/lib/import";
+import { CONTACT_DIVISIONS } from "@/lib/status";
 
 export type ContactInput = {
   first_name: string;
@@ -63,6 +64,13 @@ async function duplicates(phone: string, email: string, excludeId?: number): Pro
       matched: p && e ? "both" : p ? "phone" : "email",
     };
   });
+}
+
+/** Toggle a contact's division (any signed-in user; null clears it). */
+export async function setContactDivision(contactId: number, division: number | null): Promise<void> {
+  await actionUser();
+  if (division !== null && !(CONTACT_DIVISIONS as readonly number[]).includes(division)) throw new Error("Unknown division");
+  await run("UPDATE contacts SET division = ?, updated_at = ? WHERE id = ?", [division, now(), contactId]);
 }
 
 export async function checkDuplicates(phone: string, email: string, excludeId?: number) {

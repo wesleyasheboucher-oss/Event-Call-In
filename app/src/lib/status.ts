@@ -79,6 +79,9 @@ export const EVENT_STATUS: Record<EventStatus, Style> = {
 /** Team divisions are numbered 1 through 7. */
 export const DIVISIONS = [1, 2, 3, 4, 5, 6, 7] as const;
 
+/** Divisions a contact can be toggled into (the database allows any of 1–7). */
+export const CONTACT_DIVISIONS = [4, 6] as const;
+
 export const ROLE_LABEL: Record<Role, string> = {
   admin: "Admin",
   caller: "Caller",

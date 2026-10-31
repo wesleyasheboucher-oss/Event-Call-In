@@ -27,7 +27,7 @@ Plan on about 20 minutes the first time.
 
 ```bash
 cd app
-cp .env.example .env.local      # paste the three values in
+cp .env.example .env.production.local      # paste the three values in
 npm install
 ```
 
@@ -56,7 +56,7 @@ It's safe to re-run. Re-running with `--admin` also resets that admin's password
 2. In Netlify: **Add new site → Import an existing project**, then pick the repo.
    - **Base directory:** `app`. The app lives in this subfolder.
    - Build command and publish directory come from `netlify.toml`, so leave them alone.
-3. **Site configuration → Environment variables**: add `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`, with the same values as `.env.local`.
+3. **Site configuration → Environment variables**: add `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`, with the same values as `.env.production.local`.
 4. **Deploy.** Netlify detects Next.js and applies its runtime automatically.
 5. Open the site, sign in, and check that:
    - Home loads with your events (database is working)
@@ -78,7 +78,7 @@ Add a new file such as `supabase/migrations/20261115000000_add_x.sql`, then run 
 
 With no `DATABASE_URL` set, `npm run dev` uses an embedded Postgres (PGlite) in `data/pglite/` and saves uploads to `storage/uploads/`, so no Supabase project is needed. `npm run db:reset` wipes the local database, and it reseeds on the next request.
 
-To run locally against Supabase instead, keep the values in `.env.local`. Every developer then shares the production data, so use a separate Supabase project for staging.
+Your Supabase values live in `.env.production.local`, which `npm run db:setup` reads and `npm run dev` deliberately ignores, so local work never touches live data. (Don't put them in `.env.local`: Next.js loads that during `npm run dev`.)
 
 ## Troubleshooting
 

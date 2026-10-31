@@ -16,15 +16,19 @@ import { bulkTagContacts } from "@/app/actions/tags";
 import { Page, PageHeader } from "@/components/page";
 import { Modal } from "@/components/drawer";
 import { TagChip, TagSelector } from "@/components/tags";
+import { ContactDivisionBadge, ContactDivisionMini } from "@/components/division";
 import { Avatar, Button, Card, cx, EmptyState } from "@/components/ui";
 import { ContactDrawer } from "./contact-drawer";
 import { AddContactDrawer } from "./add-contact-drawer";
 import { ManageTagsDrawer } from "./manage-tags-drawer";
 
 type SortKey = "name" | "events" | "attended" | "no_shows" | "last_event" | "added";
-type FilterKey = "import" | "walk_in" | "manual" | "guest" | "no_shows" | "never_attended" | "no_phone" | "no_email";
+type FilterKey = "div_4" | "div_6" | "import" | "walk_in" | "manual" | "guest" | "no_shows" | "never_attended" | "no_phone" | "no_email";
 
-const FILTERS: { key: FilterKey; label: string; test: (c: ContactListRow) => boolean; group: "source" | "flag" }[] = [
+// Within "division" and "source", picking several means any of them; "flag" filters all apply.
+const FILTERS: { key: FilterKey; label: string; test: (c: ContactListRow) => boolean; group: "division" | "source" | "flag" }[] = [
+  { key: "div_4", label: "Div 4", test: (c) => c.division === 4, group: "division" },
+  { key: "div_6", label: "Div 6", test: (c) => c.division === 6, group: "division" },
   { key: "import", label: "Imported", test: (c) => c.source === "import", group: "source" },
   { key: "walk_in", label: "Walk-ins", test: (c) => c.source === "walk_in", group: "source" },
   { key: "manual", label: "Added manually", test: (c) => c.source === "manual", group: "source" },
@@ -142,6 +146,13 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
   const [adding, setAdding] = useState(false);
   const [managing, setManaging] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Division taps from the rows apply instantly; the server copy catches up on the next refresh.
+  const [divOverrides, setDivOverrides] = useState<Record<number, number | null>>({});
+  const people = useMemo(
+    () => contacts.map((c) => (c.id in divOverrides ? { ...c, division: divOverrides[c.id] } : c)),
+    [contacts, divOverrides],
+  );
+  const setDivision = (id: number, division: number | null) => setDivOverrides((o) => ({ ...o, [id]: division }));
   const [selecting, setSelecting] = useState(false); // phones: checkboxes only shown in select mode
   const [bulk, setBulk] = useState<null | "add" | "remove">(null);
   const [bulkBusy, startBulk] = useTransition();
@@ -161,9 +172,11 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
     const digits = normalizePhone(text);
     const sourceFilters = FILTERS.filter((f) => f.group === "source" && filters.has(f.key));
     const flagFilters = FILTERS.filter((f) => f.group === "flag" && filters.has(f.key));
-    const rows = contacts.filter((c) => {
+    const divisionFilters = FILTERS.filter((f) => f.group === "division" && filters.has(f.key));
+    const rows = people.filter((c) => {
       if (sourceFilters.length && !sourceFilters.some((f) => f.test(c))) return false;
       if (!flagFilters.every((f) => f.test(c))) return false;
+      if (divisionFilters.length && !divisionFilters.some((f) => f.test(c))) return false;
       if (tagFilter.size && !c.tag_ids.some((id) => tagFilter.has(id))) return false;
       if (!text) return true;
       const name = `${c.first_name} ${c.last_name}`.toLowerCase();
@@ -184,7 +197,7 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
       added: (a, b) => a.created_at.localeCompare(b.created_at),
     };
     return rows.sort((a, b) => by[key](a, b) * dir || by.name(a, b));
-  }, [contacts, q, filters, tagFilter, sort]);
+  }, [people, q, filters, tagFilter, sort]);
 
   const visible = filtered.slice(0, limit);
   const filtersActive = filters.size > 0 || tagFilter.size > 0;
@@ -259,6 +272,7 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
       { header: "City", value: (c) => c.city },
       { header: "State", value: (c) => c.state },
       { header: "ZIP", value: (c) => c.zip },
+      { header: "Division", value: (c) => c.division },
       { header: "Tags", value: (c) => c.tag_ids.map((id) => tagsById.get(id)?.name).filter(Boolean).join(", ") },
       { header: "Notes", value: (c) => c.notes },
       { header: "Source", value: (c) => c.source },
@@ -446,6 +460,7 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-[15px] font-medium">{name}</span>
+                        {selecting && <ContactDivisionBadge division={c.division} />}
                         {(c.source === "walk_in" || c.source === "guest") && (
                           <span className="shrink-0 rounded-full bg-violet-50 px-1.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200 ring-inset">
                             {c.source === "guest" ? "Guest" : "Walk-in"}
@@ -456,9 +471,10 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                         {c.events_count} event{c.events_count === 1 ? "" : "s"} · {c.attended_count} attended
                         {c.no_show_count > 0 && <span className="text-rose-600"> · {c.no_show_count} no-show</span>}
                       </div>
-                      {c.tag_ids.length > 0 && (
-                        <div className="mt-1.5">
-                          <TagList ids={c.tag_ids} byId={tagsById} max={3} />
+                      {!selecting && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <ContactDivisionMini contactId={c.id} value={c.division} onChange={(d) => setDivision(c.id, d)} />
+                          <TagList ids={c.tag_ids} byId={tagsById} max={2} />
                         </div>
                       )}
                     </div>
@@ -490,21 +506,22 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                         </SortButton>
                       </span>
                     </th>
-                    <th className="px-3 py-3 font-medium">Phone</th>
-                    <th className="px-4 py-3 font-medium">Email</th>
-                    <SortHead sort={sort} onSort={toggleSort} k="events" className="px-3 text-right">
+                    <th className="px-2 py-3 font-medium">Div</th>
+                    <th className="px-2 py-3 font-medium">Phone</th>
+                    <th className="px-3 py-3 font-medium">Email</th>
+                    <SortHead sort={sort} onSort={toggleSort} k="events" className="px-2 text-right">
                       Events
                     </SortHead>
-                    <SortHead sort={sort} onSort={toggleSort} k="attended" className="px-3 text-right">
+                    <SortHead sort={sort} onSort={toggleSort} k="attended" className="px-2 text-right">
                       Attended
                     </SortHead>
-                    <SortHead sort={sort} onSort={toggleSort} k="no_shows" className="px-3 text-right whitespace-nowrap">
+                    <SortHead sort={sort} onSort={toggleSort} k="no_shows" className="px-2 text-right whitespace-nowrap">
                       No-shows
                     </SortHead>
                     <SortHead sort={sort} onSort={toggleSort} k="last_event">
                       Last event
                     </SortHead>
-                    <SortHead sort={sort} onSort={toggleSort} k="added" className="pr-6">
+                    <SortHead sort={sort} onSort={toggleSort} k="added" className="pr-5">
                       Added
                     </SortHead>
                   </tr>
@@ -529,7 +546,7 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                           <div className="flex items-center gap-1">
                             <Checkbox checked={isSel} onChange={() => toggleSelected(c.id)} label={`Select ${name}`} />
                             <Avatar name={name} size="sm" className="mr-2" />
-                            <div className="flex max-w-[180px] min-w-0 items-center gap-2 whitespace-nowrap">
+                            <div className="flex max-w-[160px] min-w-0 items-center gap-2 whitespace-nowrap">
                               <span className="truncate font-medium text-ink" title={name}>
                                 {name}
                               </span>
@@ -542,7 +559,10 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-3 whitespace-nowrap">
+                        <td className="px-2 py-3">
+                          <ContactDivisionMini compact contactId={c.id} value={c.division} onChange={(d) => setDivision(c.id, d)} />
+                        </td>
+                        <td className="px-2 py-3 whitespace-nowrap">
                           {c.phone ? (
                             <a href={telHref(c.phone)} onClick={(e) => e.stopPropagation()} className="text-ink-2 tabular-nums hover:text-accent">
                               {formatPhone(c.phone)}
@@ -551,18 +571,18 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                             <span className="text-ink-3">—</span>
                           )}
                         </td>
-                        <td className="max-w-[180px] truncate px-4 py-3 text-ink-2" title={c.email || undefined}>{c.email || <span className="text-ink-3">—</span>}</td>
-                        <td className="px-3 py-3 text-right tabular-nums">{c.events_count}</td>
-                        <td className="px-3 py-3 text-right tabular-nums">
+                        <td className="max-w-[160px] truncate px-3 py-3 text-ink-2" title={c.email || undefined}>{c.email || <span className="text-ink-3">—</span>}</td>
+                        <td className="px-2 py-3 text-right tabular-nums">{c.events_count}</td>
+                        <td className="px-2 py-3 text-right tabular-nums">
                           <span className={c.attended_count ? "text-emerald-700" : "text-ink-3"}>{c.attended_count}</span>
                         </td>
-                        <td className="px-3 py-3 text-right tabular-nums">
+                        <td className="px-2 py-3 text-right tabular-nums">
                           <span className={c.no_show_count ? "font-medium text-rose-600" : "text-ink-3"}>{c.no_show_count}</span>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-ink-2">
                           {c.last_event_at ? fmt(c.last_event_at, TZ, "MMM d, yyyy") : <span className="text-ink-3">—</span>}
                         </td>
-                        <td className="py-3 pr-6 pl-4 whitespace-nowrap text-ink-3">{fmt(c.created_at, TZ, "MMM d, yyyy")}</td>
+                        <td className="py-3 pr-5 pl-4 whitespace-nowrap text-ink-3">{fmt(c.created_at, TZ, "MMM d, yyyy")}</td>
                       </motion.tr>
                     );
                   })}

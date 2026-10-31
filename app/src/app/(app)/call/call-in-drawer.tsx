@@ -15,6 +15,7 @@ import { Drawer } from "@/components/drawer";
 import { GuestsPanel } from "@/components/guests-panel";
 import { RsvpPicker } from "@/components/status";
 import { ContactTagsEditor } from "@/components/tags";
+import { ContactDivisionToggle } from "@/components/division";
 import { Button, cx, SectionTitle, Textarea } from "@/components/ui";
 import { AddressBlock, ContactHeader, HistoryList, NotesList, PanelSkeleton, QuickStats } from "@/components/contact-panel";
 
@@ -26,6 +27,7 @@ export function CallInDrawer({
   onClose,
   onStatus,
   onPatchCell,
+  onDivision,
   hasPrev,
   hasNext,
   onPrev,
@@ -36,6 +38,7 @@ export function CallInDrawer({
   onClose: () => void;
   onStatus: (eventId: number, s: RsvpStatus) => void;
   onPatchCell: (eventId: number, p: Partial<CallInCell>) => void;
+  onDivision: (division: number | null) => void;
   hasPrev: boolean;
   hasNext: boolean;
   onPrev: () => void;
@@ -161,6 +164,8 @@ export function CallInDrawer({
             ) : (
               <div className="rounded-2xl bg-surface-2 px-5 py-4 text-sm text-ink-2">No phone on file. Try email instead.</div>
             )}
+
+            <ContactDivisionToggle contactId={row.contact_id} value={row.division} onChange={onDivision} />
 
             {detail ? (
               <ContactTagsEditor
