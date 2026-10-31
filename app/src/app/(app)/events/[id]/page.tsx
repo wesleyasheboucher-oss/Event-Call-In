@@ -42,6 +42,7 @@ import { EventStatusChip } from "@/components/status";
 import { Page } from "@/components/page";
 import { Avatar } from "@/components/ui";
 import { AdminActions, AddPeopleButton } from "./event-actions";
+import { UploadConfirmsButton } from "./upload-confirms";
 import type { EventRecord } from "@/lib/types";
 
 const isPast = (iso: string) => Date.parse(iso) < Date.now();
@@ -494,6 +495,7 @@ export default async function EventPage(props: PageProps<"/events/[id]">) {
                   <ClipboardCheck className="size-4" /> Event-day sign-in
                 </Link>
               )}
+              {isAdmin && <UploadConfirmsButton eventId={event.id} eventName={event.name} />}
               {isAdmin && <AddPeopleButton eventId={event.id} eventName={event.name} pastEvents={pastEvents} />}
             </div>
 

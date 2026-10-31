@@ -18,19 +18,22 @@ export async function logCall(registrationId: number, userId: number) {
   return ts;
 }
 
-export async function changeRsvp(registrationId: number, to: RsvpStatus, userId: number) {
+/** `via: "upload"` marks changes from a confirms list upload (not credited on the leaderboard). */
+export async function changeRsvp(registrationId: number, to: RsvpStatus, userId: number, via: "" | "upload" = "") {
   const reg = await get<{ rsvp: RsvpStatus }>("SELECT rsvp FROM registrations WHERE id = ?", [registrationId]);
   if (!reg) throw new Error("Registration not found");
   if (reg.rsvp === to) return;
-  await run("UPDATE registrations SET rsvp = ?, called_by = ? WHERE id = ?", [to, userId, registrationId]);
+  // An upload isn't a call, so it doesn't take over "last called by".
+  if (via === "upload") await run("UPDATE registrations SET rsvp = ? WHERE id = ?", [to, registrationId]);
+  else await run("UPDATE registrations SET rsvp = ?, called_by = ? WHERE id = ?", [to, userId, registrationId]);
   await run(
-    "INSERT INTO status_changes (registration_id, kind, from_value, to_value, user_id, created_at) VALUES (?, 'rsvp', ?, ?, ?, ?)",
-    [registrationId, reg.rsvp, to, userId, now()],
+    "INSERT INTO status_changes (registration_id, kind, from_value, to_value, user_id, created_at, via) VALUES (?, 'rsvp', ?, ?, ?, ?, ?)",
+    [registrationId, reg.rsvp, to, userId, now(), via],
   );
 
   // Guests follow their host's RSVP (each change audited on the guest too).
   const guests = await all<{ id: number }>("SELECT id FROM registrations WHERE guest_of = ?", [registrationId]);
-  for (const g of guests) await changeRsvp(g.id, to, userId);
+  for (const g of guests) await changeRsvp(g.id, to, userId, via);
 }
 
 export async function changeAttendance(registrationId: number, to: AttendanceStatus, userId: number) {

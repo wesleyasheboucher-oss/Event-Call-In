@@ -274,7 +274,7 @@ export async function getCallerReport(eventId: number): Promise<CallerReportRow[
               WHERE l.user_id = u.id AND r.event_id = ?) AS calls,
             (SELECT COUNT(*) FROM status_changes s JOIN registrations r ON r.id = s.registration_id
               WHERE s.user_id = u.id AND r.event_id = ? AND s.kind = 'rsvp'
-                AND s.to_value IN ('confirmed','reconfirmed')) AS confirms,
+                AND s.via <> 'upload' AND s.to_value IN ('confirmed','reconfirmed')) AS confirms,
             (SELECT COUNT(*) FROM call_notes n JOIN registrations r ON r.id = n.registration_id
               WHERE n.user_id = u.id AND r.event_id = ?) AS notes
        FROM users u

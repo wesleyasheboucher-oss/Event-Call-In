@@ -48,7 +48,7 @@ export async function getLeaderboard(period: Period, metric: Metric): Promise<Le
   const scoreSql =
     metric === "confirms"
       ? `SELECT user_id, COUNT(DISTINCT registration_id) AS n FROM status_changes
-          WHERE kind = 'rsvp' AND to_value IN ('confirmed','reconfirmed') AND created_at >= ?
+          WHERE kind = 'rsvp' AND via <> 'upload' AND to_value IN ('confirmed','reconfirmed') AND created_at >= ?
           GROUP BY user_id`
       : `SELECT user_id, COUNT(*) AS n FROM call_logs WHERE created_at >= ? GROUP BY user_id`;
 
