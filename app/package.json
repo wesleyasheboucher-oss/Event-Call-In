@@ -1,0 +1,45 @@
+{
+  "name": "app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:reset": "rm -rf data && echo \"Local database removed; demo data will be re-seeded on next request.\"",
+    "db:setup": "tsx scripts/setup-db.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "@supabase/supabase-js": "^2.118.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "date-fns-tz": "^3.2.0",
+    "lucide-react": "^1.65.0",
+    "marked": "^18.1.2",
+    "motion": "^14.9.0",
+    "next": "16.4.3",
+    "papaparse": "^5.7.0",
+    "postgres": "^4.0.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-easy-crop": "^6.2.4",
+    "read-excel-file": "^9.3.14",
+    "server-only": "^0.0.1",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.7.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^24.19.2",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.3",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  }
+}
