@@ -4,6 +4,8 @@ import { useDeferredValue, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
+import { useListLayout } from "@/components/use-layout";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { toast } from "sonner";
 import { ArrowUp, Check, Download, Phone, Plus, Search, Settings2, Tag as TagIcon, Upload, Users, X } from "lucide-react";
 import type { ContactListRow } from "@/lib/queries";
@@ -135,6 +137,7 @@ function TagList({
 
 export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; tags: TagWithCount[] }) {
   const router = useRouter();
+  const layout = useListLayout();
   const pathname = usePathname();
   const params = useSearchParams();
   const openId = params.get("c") ? Number(params.get("c")) : null;
@@ -487,7 +490,8 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
         ) : (
           <>
             {/* Phones and small tablets: stacked cards */}
-            <ul className="divide-y divide-border md:hidden">
+            {layout === "cards" && (
+<ul className="divide-y divide-border">
               {selecting && (
                 <li className="flex items-center gap-1 bg-surface-2/60 px-2 py-1 text-[13px] text-ink-2">
                   <Checkbox checked={allFilteredSelected} indeterminate={someSelected} onChange={toggleAll} label="Select all" />
@@ -545,9 +549,11 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                 );
               })}
             </ul>
+)}
 
-            {/* Desktop table */}
-            <div className="hidden overflow-x-auto md:block">
+{/* Desktop table */}
+            {layout === "table" && (
+<div className="overflow-x-auto">
               <table className="w-full min-w-[920px] text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[13px] text-ink-2">
@@ -643,7 +649,9 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                 </tbody>
               </table>
             </div>
+)}
 
+            {layout === null && <ListSkeleton />}
             {filtered.length > limit && (
               <div className="flex items-center justify-center gap-3 border-t border-border py-4 text-[13px] text-ink-3">
                 Showing {limit.toLocaleString()} of {filtered.length.toLocaleString()}

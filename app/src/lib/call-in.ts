@@ -77,8 +77,11 @@ export async function callableEvents(): Promise<CallInEvent[]> {
     }));
 }
 
-/** Every contact, with their registration on each of the given events. */
-export async function getCallInRows(eventIds: number[]): Promise<CallInRow[]> {
+/**
+ * Contacts with their registration on each of the given events. By default only people
+ * on at least one of those lists (what Call In shows first); `everyone` adds all contacts.
+ */
+export async function getCallInRows(eventIds: number[], opts: { everyone?: boolean } = {}): Promise<CallInRow[]> {
   const [contacts, regs] = await Promise.all([
     listContacts(),
     eventIds.length
@@ -105,7 +108,9 @@ export async function getCallInRows(eventIds: number[]): Promise<CallInRow[]> {
     cellsByContact.get(contact_id)![event_id] = cell;
   }
 
-  return contacts.map((c) => ({
+  return contacts
+    .filter((c) => opts.everyone || cellsByContact.has(c.id))
+    .map((c) => ({
     contact_id: c.id,
     first_name: c.first_name,
     last_name: c.last_name,

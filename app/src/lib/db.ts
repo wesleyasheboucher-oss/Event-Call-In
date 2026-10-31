@@ -27,6 +27,10 @@ async function connectPostgres(url: string): Promise<Driver> {
     prepare: false,
     max: Number(process.env.DATABASE_POOL_MAX ?? 5),
     idle_timeout: 20,
+    // Serverless functions freeze between requests; a socket that died meanwhile should
+    // fail fast and be replaced, not leave a phone waiting on a page that never opens.
+    connect_timeout: 8,
+    max_lifetime: 60 * 5,
     // COUNT/SUM come back as int8/numeric; the app expects plain numbers.
     types: { numberish: { to: 20, from: [20, 1700], serialize: String, parse: Number } },
   });

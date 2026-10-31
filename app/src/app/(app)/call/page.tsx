@@ -7,7 +7,8 @@ import { CallIn } from "./call-in";
 /**
  * Call In: contacts down the side, one column per selected upcoming event.
  * `?e=5,6` picks the events; without it we default to the caller's assigned
- * events, or the next three coming up.
+ * events, or the next three coming up. Only people on those lists are sent unless
+ * `?all=1` ("Everyone"), which keeps the page light on phones.
  */
 export default async function CallInPage(props: PageProps<"/call">) {
   const user = await requireUser(["caller"]);
@@ -28,6 +29,7 @@ export default async function CallInPage(props: PageProps<"/call">) {
     selectedIds = mine.length ? mine.slice(0, 4) : events.slice(0, 3).map((e) => e.id);
   }
 
-  const rows = await getCallInRows(selectedIds);
-  return <CallIn events={events} selectedIds={selectedIds} initialRows={rows} tags={tags} />;
+  const everyone = sp.all === "1";
+  const rows = await getCallInRows(selectedIds, { everyone });
+  return <CallIn events={events} selectedIds={selectedIds} everyone={everyone} initialRows={rows} tags={tags} />;
 }

@@ -3,6 +3,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "motion/react";
+import { useListLayout } from "@/components/use-layout";
+import { ListSkeleton } from "@/components/list-skeleton";
 import { toast } from "sonner";
 import { AlertTriangle, Check, Download, FileSpreadsheet, FileText, ListFilter, Phone, Search, Tag as TagIcon, UserPlus, Users, X } from "lucide-react";
 import type { CallInCell, CallInEvent, CallInRow } from "@/lib/call-in";
@@ -35,15 +37,18 @@ function lastCalled(r: CallInRow): string {
 export function CallIn({
   events,
   selectedIds,
+  everyone,
   initialRows,
   tags,
 }: {
   events: CallInEvent[];
   selectedIds: number[];
+  everyone: boolean;
   initialRows: CallInRow[];
   tags: TagWithCount[];
 }) {
   const router = useRouter();
+  const layout = useListLayout();
   const pathname = usePathname();
   const [switching, startSwitch] = useTransition();
   const [rows, setRows] = useState(initialRows);
@@ -56,7 +61,7 @@ export function CallIn({
   const selected = useMemo(() => events.filter((e) => selectedIds.includes(e.id)), [events, selectedIds]);
   const [query, setQuery] = useState("");
   const q = useDeferredValue(query);
-  const [scope, setScope] = useState<Scope>("listed");
+  const [scope, setScope] = useState<Scope>(everyone ? "everyone" : "listed");
   const [statusFilters, setStatusFilters] = useState<StatusFilters>({});
   const [statusOpen, setStatusOpen] = useState(false);
   const [divisions, setDivisions] = useState<Set<number>>(new Set());
@@ -70,11 +75,12 @@ export function CallIn({
   const [openId, setOpenId] = useState<number | null>(null);
   const [menu, setMenu] = useState<(MenuTarget & { contactId: number; eventId: number }) | null>(null);
 
-  // Changing which events are included updates the URL; the server sends fresh rows.
-  const setSelected = (ids: number[]) =>
+  // Changing which events are included (or Everyone) updates the URL; the server sends fresh rows.
+  const navigate = (ids: number[], all: boolean) =>
     startSwitch(() => {
-      router.replace(ids.length ? `${pathname}?e=${ids.join(",")}` : `${pathname}?e=none`, { scroll: false });
+      router.replace(`${pathname}?e=${ids.length ? ids.join(",") : "none"}${all ? "&all=1" : ""}`, { scroll: false });
     });
+  const setSelected = (ids: number[]) => navigate(ids, scope === "everyone");
   const toggleEvent = (id: number) =>
     setSelected(selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id]);
 
@@ -334,6 +340,7 @@ export function CallIn({
               onClick={() => {
                 setScope(s);
                 setLimit(PAGE);
+                if ((s === "everyone") !== everyone) navigate(selectedIds, s === "everyone");
               }}
               className={cx(
                 "relative h-9 flex-1 rounded-lg px-3 text-[13px] font-medium transition-colors sm:h-8 sm:flex-none",
@@ -550,7 +557,8 @@ export function CallIn({
           ) : (
             <>
               {/* Desktop grid */}
-              <div className="hidden overflow-x-auto md:block">
+              {layout === "table" && (
+<div className="overflow-x-auto">
                 <table className="w-full text-sm" style={{ minWidth: 520 + selected.length * 170 }}>
                   <thead>
                     <tr className="border-b border-border text-left align-bottom">
@@ -622,9 +630,11 @@ export function CallIn({
                   </tbody>
                 </table>
               </div>
+)}
 
-              {/* Phone cards */}
-              <ul className="divide-y divide-border md:hidden">
+{/* Phone cards */}
+              {layout === "cards" && (
+<ul className="divide-y divide-border">
                 {filtered.slice(0, limit).map((r) => {
                   const name = `${r.first_name} ${r.last_name}`;
                   return (
@@ -667,6 +677,9 @@ export function CallIn({
                   );
                 })}
               </ul>
+)}
+
+              {layout === null && <ListSkeleton />}
               {limit < filtered.length && <div ref={sentinel} className="h-16" />}
             </>
           )}
