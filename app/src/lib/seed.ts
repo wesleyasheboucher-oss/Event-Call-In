@@ -30,15 +30,20 @@ export async function seed(exec: Exec) {
 
   {
     const pw = hashPassword("password");
-    const addUser = (...a: unknown[]) => ins("INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)", a);
-    const admin = await addUser("Wes Boucher", "admin@example.com", pw, "admin");
-    const caller1 = await addUser("Dana Ortiz", "caller@example.com", pw, "caller");
-    const caller2 = await addUser("Marcus Hill", "marcus@example.com", pw, "caller");
-    const signin = await addUser("Sam Lee", "signin@example.com", pw, "signin");
+    const addUser = (...a: unknown[]) =>
+      ins("INSERT INTO users (name, email, password_hash, role, title, division) VALUES (?, ?, ?, ?, ?, ?)", a);
+    const admin = await addUser("Wes Boucher", "admin@example.com", pw, "admin", "Director", 1);
+    const caller1 = await addUser("Dana Ortiz", "caller@example.com", pw, "caller", "Outreach Coordinator", 3);
+    const caller2 = await addUser("Marcus Hill", "marcus@example.com", pw, "caller", "Volunteer Caller", 5);
+    const signin = await addUser("Sam Lee", "signin@example.com", pw, "signin", "Event Host", 3);
     const callers = [admin, caller1, caller2];
 
     for (const c of ["Networking", "Workshop", "Social", "Fundraiser", "Meeting"]) {
       await q("INSERT INTO categories (name) VALUES (?)", [c]);
+    }
+    const tagIds: Record<string, number> = {};
+    for (const [name, color] of [["Volunteer", "green"], ["VIP", "amber"], ["Donor", "indigo"], ["Spanish speaker", "sky"], ["Board member", "violet"], ["Prefers text", "pink"]]) {
+      tagIds[name] = await ins("INSERT INTO tags (name, color, created_by) VALUES (?, ?, ?)", [name, color, admin]);
     }
 
     const first = "James Mary Robert Patricia John Jennifer Michael Linda David Elizabeth William Barbara Richard Susan Joseph Jessica Thomas Sarah Carlos Karen Daniel Lisa Matthew Nancy Anthony Betty Mark Sandra Donald Ashley Steven Kimberly Andrew Emily Paul Donna Joshua Michelle Kenneth Carol Kevin Amanda Brian Melissa George Deborah Timothy Stephanie Ronald Rebecca Jason Sharon Edward Laura Jeffrey Cynthia Ryan Amy Jacob Angela Gary Shirley Nicholas Brenda Eric Emma Jonathan Anna Stephen Pamela Larry Nicole Justin Samantha Scott Katherine Brandon Christine Benjamin Debra Samuel Rachel Gregory Carolyn Alexander Janet Patrick Maria Frank Olivia Raymond Heather Jack Helen Dennis Catherine Jerry Diane Tyler Julie Aaron Victoria Jose Joyce Adam Lauren Nathan Kelly Henry Christina Zachary Ruth Douglas Joan Peter Virginia Kyle Judith Noah Evelyn Ethan Hannah Jeremy Andrea Walter Megan Christian Cheryl Keith Jacqueline Roger Martha Terry Madison Austin Teresa Sean Gloria Gerald Sara Carl Janice Harold Ann Dylan Kathryn Arthur Abigail Lawrence Sophia Jordan Frances Jesse Jean Bryan Alice Billy Judy Bruce Isabella Gabriel Julia Joe Grace Logan Amber Alan Denise Juan Danielle Albert Marilyn Willie Beverly Elijah Charlotte Wayne Natalie Randy Theresa Vincent Diana Mason Brittany Roy Doris Ralph Kayla Bobby Alexis Russell Lori Bradley Marie".split(" ");
@@ -78,6 +83,9 @@ export async function seed(exec: Exec) {
         created,
       );
       contactIds.push(id);
+      for (const [name, chance] of [["Volunteer", 0.12], ["VIP", 0.05], ["Donor", 0.1], ["Spanish speaker", 0.06], ["Board member", 0.02], ["Prefers text", 0.07]] as const) {
+        if (rand() < chance) await q("INSERT INTO contact_tags (contact_id, tag_id, added_by) VALUES (?, ?, ?)", [id, tagIds[name], admin]);
+      }
     }
 
     const addEvent = (...a: unknown[]) => ins(
@@ -178,7 +186,10 @@ export async function seed(exec: Exec) {
           } else if (expected) attendance = "no_show";
         }
         const caller = pick(callers);
-        const calledAt = touched ? new Date(Date.parse(start) - (2 + rand() * 18) * 864e5).toISOString() : null;
+        // Calls happen before the event, and never in the future.
+        const calledAt = touched
+          ? new Date(Math.min(Date.parse(start) - (2 + rand() * 18) * 864e5, Date.now() - (1 + rand() * 9 * 24) * 3600e3)).toISOString()
+          : null;
         const regId = await insertReg(eventId, cid, rsvp, attendance, null, 0, calledAt, touched ? caller : null, checkedIn, regCreated);
 
         // Some people bring a named guest, who becomes a contact of their own.

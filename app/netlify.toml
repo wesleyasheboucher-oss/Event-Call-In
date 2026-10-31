@@ -5,6 +5,6 @@
   publish = ".next"
 
 [build.environment]
-  NODE_VERSION = "24"
+  NODE_VERSION = "22"
   # Next.js telemetry off in CI
   NEXT_TELEMETRY_DISABLED = "1"

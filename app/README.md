@@ -31,17 +31,18 @@ No setup needed: with no `DATABASE_URL`, the app runs an embedded Postgres (PGli
 
 | Area | Path |
 |---|---|
-| Caller workspace | `src/app/(app)/call/` |
+| Call In (multi-event caller workspace) | `src/app/(app)/call/` |
 | Event-day sign-in | `src/app/(app)/signin/` |
 | Events (list, page, form) | `src/app/(app)/events/` |
 | Contacts & import | `src/app/(app)/contacts/` |
 | Reports / Team | `src/app/(app)/reports/`, `src/app/(app)/users/` |
 | Shared UI kit | `src/components/` (`ui.tsx`, `drawer.tsx`, `status.tsx`, `contact-panel.tsx`) |
-| Audit trail | `status_changes` table: every RSVP/attendance change with who and when |
+| Contact tags | `src/lib/tags.ts`, `src/components/tags.tsx` |
+| Audit trail | `status_changes` table: every registration/attendance change with who and when |
 
 ## Roles
 
-Admins see everything. Callers see Home, Events, and Calling. Sign-in staff see Home, Events, and Sign-in. (BRD open decision #2, defaulted to role-based screens rather than fine-grained permissions.)
+Admins see everything. Callers see Home, Events, and Call In. Sign-in staff see Home, Events, and Sign-in. (BRD open decision #2, defaulted to role-based screens rather than fine-grained permissions.)
 
 ## Deploying
 

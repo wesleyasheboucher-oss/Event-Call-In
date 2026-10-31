@@ -1,14 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   BarChart3,
   CalendarDays,
   ClipboardCheck,
   Home,
   LogOut,
+  MoreHorizontal,
   PhoneCall,
   UserCog,
   Users,
@@ -21,7 +23,7 @@ import type { SessionUser } from "@/lib/auth";
 const NAV: { href: string; label: string; icon: typeof Home; roles: Role[] }[] = [
   { href: "/", label: "Home", icon: Home, roles: ["admin", "caller", "signin"] },
   { href: "/events", label: "Events", icon: CalendarDays, roles: ["admin", "caller", "signin"] },
-  { href: "/call", label: "Calling", icon: PhoneCall, roles: ["admin", "caller"] },
+  { href: "/call", label: "Call In", icon: PhoneCall, roles: ["admin", "caller"] },
   { href: "/signin", label: "Sign-in", icon: ClipboardCheck, roles: ["admin", "signin"] },
   { href: "/contacts", label: "Contacts", icon: Users, roles: ["admin"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["admin"] },
@@ -35,16 +37,17 @@ function isActive(pathname: string, href: string) {
 export function Sidebar({ user }: { user: SessionUser }) {
   const pathname = usePathname();
   const items = NAV.filter((n) => n.roles.includes(user.role));
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   return (
     <>
-      {/* Desktop */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-surface/70 px-4 py-6 backdrop-blur lg:flex">
-        <Link href="/" className="mb-8 flex items-center gap-2.5 px-2">
+      {/* Desktop sidebar: full at ≥1024px, icon-only rail on narrower windows (768–1023px). */}
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[72px] flex-col border-r border-border bg-surface/70 px-3 py-6 backdrop-blur md:flex lg:w-64 lg:px-4">
+        <Link href="/" className="mb-8 flex items-center gap-2.5 px-1 lg:px-2">
           <span className="flex size-8 items-center justify-center rounded-xl bg-accent text-white shadow-md shadow-indigo-500/25">
             <PhoneCall className="size-4" />
           </span>
-          <span className="text-[15px] font-semibold tracking-tight">Call-In</span>
+          <span className="hidden text-[15px] font-semibold tracking-tight lg:inline">Call-In</span>
         </Link>
         <nav className="flex flex-1 flex-col gap-0.5">
           {items.map((item) => {
@@ -53,8 +56,9 @@ export function Sidebar({ user }: { user: SessionUser }) {
               <Link
                 key={item.href}
                 href={item.href}
+                title={item.label}
                 className={cx(
-                  "relative flex h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors",
+                  "relative flex h-11 items-center justify-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors lg:h-10 lg:justify-start",
                   active ? "text-ink" : "text-ink-2 hover:text-ink",
                 )}
               >
@@ -66,16 +70,19 @@ export function Sidebar({ user }: { user: SessionUser }) {
                   />
                 )}
                 <item.icon className={cx("relative size-[18px]", active ? "text-accent" : "text-ink-3")} />
-                <span className="relative">{item.label}</span>
+                <span className="relative hidden lg:inline">{item.label}</span>
               </Link>
             );
           })}
         </nav>
-        <div className="flex items-center gap-3 rounded-xl px-2 py-2">
+        <div className="flex flex-col items-center gap-3 rounded-xl py-2 lg:flex-row lg:px-2">
           <Avatar name={user.name} size="md" />
-          <div className="min-w-0 flex-1">
+          <div className="hidden min-w-0 flex-1 lg:block">
             <div className="truncate text-sm font-medium">{user.name}</div>
-            <div className="text-xs text-ink-3">{ROLE_LABEL[user.role]}</div>
+            <div className="truncate text-xs text-ink-3">
+              {user.title || ROLE_LABEL[user.role]}
+              {user.division != null && ` · Div ${user.division}`}
+            </div>
           </div>
           <form action={logout}>
             <button
@@ -88,42 +95,135 @@ export function Sidebar({ user }: { user: SessionUser }) {
         </div>
       </aside>
 
-      {/* Tablet / phone */}
-      <header className="sticky top-0 z-30 border-b border-border bg-surface/80 backdrop-blur lg:hidden">
-        <div className="flex items-center gap-2 px-4 pt-3">
-          <span className="flex size-7 items-center justify-center rounded-lg bg-accent text-white">
-            <PhoneCall className="size-3.5" />
-          </span>
-          <span className="flex-1 text-sm font-semibold">Call-In</span>
-          <form action={logout}>
-            <button className="flex items-center gap-1.5 text-xs text-ink-2">
-              <Avatar name={user.name} size="sm" />
-              <LogOut className="size-3.5" />
-            </button>
-          </form>
-        </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 py-2">
-          {items.map((item) => {
-            const active = isActive(pathname, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cx(
-                  "relative flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium",
-                  active ? "text-ink" : "text-ink-2",
-                )}
-              >
-                {active && (
-                  <motion.span layoutId="nav-active-m" className="absolute inset-0 rounded-lg bg-surface-2 ring-1 ring-border" />
-                )}
-                <item.icon className={cx("relative size-4", active ? "text-accent" : "text-ink-3")} />
-                <span className="relative">{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+      {/* Tablet / phone: slim header + bottom tab bar */}
+      <header className="sticky top-0 z-30 flex h-14 items-center gap-2.5 border-b border-border bg-surface/85 px-4 backdrop-blur md:hidden">
+        <span className="flex size-8 items-center justify-center rounded-xl bg-accent text-white shadow-md shadow-indigo-500/25">
+          <PhoneCall className="size-4" />
+        </span>
+        <span className="flex-1 text-[15px] font-semibold tracking-tight">Call-In</span>
+        <button onClick={() => setSheetOpen((o) => !o)} className="-mr-1 rounded-full p-1" aria-label="Account and more">
+          <Avatar name={user.name} size="sm" />
+        </button>
       </header>
+      <MobileTabBar items={items} pathname={pathname} user={user} moreOpen={sheetOpen} setMoreOpen={setSheetOpen} />
     </>
   );
 }
+
+const MAX_TABS = 4;
+
+function MobileTabBar({
+  items,
+  pathname,
+  user,
+  moreOpen,
+  setMoreOpen,
+}: {
+  items: typeof NAV;
+  pathname: string;
+  user: SessionUser;
+  moreOpen: boolean;
+  setMoreOpen: (fn: (o: boolean) => boolean) => void;
+}) {
+  // Everything fits when there are few items; otherwise the first three plus "More".
+  const primary = items.length <= MAX_TABS ? items : items.slice(0, MAX_TABS - 1);
+  const overflow = items.length <= MAX_TABS ? [] : items.slice(MAX_TABS - 1);
+  const overflowActive = overflow.some((i) => isActive(pathname, i.href));
+
+  const tab = (active: boolean) =>
+    cx(
+      "relative flex h-16 flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
+      active ? "text-accent" : "text-ink-3 active:text-ink",
+    );
+
+  return (
+    <>
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-lg md:hidden">
+        <div className="mx-auto flex max-w-lg">
+          {primary.map((item) => {
+            const active = isActive(pathname, item.href);
+            return (
+              <Link key={item.href} href={item.href} className={tab(active)} onClick={() => setMoreOpen(() => false)}>
+                {active && (
+                  <motion.span
+                    layoutId="tab-active"
+                    className="absolute top-0 h-0.5 w-10 rounded-full bg-accent"
+                    transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                  />
+                )}
+                <item.icon className="size-[22px]" strokeWidth={active ? 2.2 : 1.8} />
+                {item.label}
+              </Link>
+            );
+          })}
+          {overflow.length > 0 && (
+            <button className={tab(overflowActive || moreOpen)} onClick={() => setMoreOpen((o) => !o)} aria-expanded={moreOpen}>
+              {overflowActive && !moreOpen && (
+                <motion.span layoutId="tab-active" className="absolute top-0 h-0.5 w-10 rounded-full bg-accent" />
+              )}
+              <MoreHorizontal className="size-[22px]" />
+              More
+            </button>
+          )}
+        </div>
+      </nav>
+
+      <AnimatePresence>
+        {moreOpen && (
+          <div className="fixed inset-0 z-[35] md:hidden" onClick={() => setMoreOpen(() => false)}>
+            <motion.div
+              className="absolute inset-0 bg-stone-900/20"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            />
+            <motion.div
+              onClick={(e) => e.stopPropagation()}
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", stiffness: 420, damping: 40 }}
+              className="absolute inset-x-0 bottom-[var(--bottom-nav)] rounded-t-3xl bg-surface px-3 pt-3 pb-3 shadow-[var(--shadow-lift)] ring-1 ring-border"
+            >
+              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-border-strong" />
+              <div className="flex items-center gap-3 px-3 py-3">
+                <Avatar name={user.name} size="md" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">{user.name}</div>
+                  <div className="text-xs text-ink-3">
+                    {user.title || ROLE_LABEL[user.role]}
+                    {user.division != null && ` · Division ${user.division}`}
+                  </div>
+                </div>
+              </div>
+              {overflow.map((item) => {
+                const active = isActive(pathname, item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMoreOpen(() => false)}
+                    className={cx(
+                      "flex min-h-13 items-center gap-3.5 rounded-2xl px-4 text-[15px] font-medium",
+                      active ? "bg-accent-soft text-accent-ink" : "text-ink active:bg-surface-2",
+                    )}
+                  >
+                    <item.icon className={cx("size-5", active ? "text-accent" : "text-ink-3")} />
+                    {item.label}
+                  </Link>
+                );
+              })}
+              <form action={logout}>
+                <button className="flex min-h-13 w-full items-center gap-3.5 rounded-2xl px-4 text-[15px] font-medium text-ink-2 active:bg-surface-2">
+                  <LogOut className="size-5 text-ink-3" />
+                  Sign out
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+

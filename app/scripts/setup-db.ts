@@ -3,7 +3,7 @@
  *
  *   npm run db:setup                         # schema + storage bucket
  *   npm run db:setup -- --seed               # …plus demo data (empty database only)
- *   npm run db:setup -- --admin=you@org.com --name="Your Name" --password="…"
+ *   npm run db:setup -- --admin=you@org.com --name="Your Name" --password="…" [--title="Director" --division=1]
  *                                            # …plus your first real admin account
  *
  * Reads DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY from the
@@ -64,10 +64,14 @@ async function main() {
     const password = typeof args.password === "string" ? args.password : "";
     if (password.length < 8) throw new Error("--password must be at least 8 characters.");
     const name = typeof args.name === "string" ? args.name : args.admin;
+    const title = typeof args.title === "string" ? args.title : "Administrator";
+    const division = typeof args.division === "string" ? Number(args.division) : null;
+    if (division !== null && !(division >= 1 && division <= 7)) throw new Error("--division must be 1–7.");
     await sql`
-      INSERT INTO users (name, email, password_hash, role)
-      VALUES (${name}, ${args.admin.toLowerCase()}, ${hashPassword(password)}, 'admin')
-      ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin', active = 1`;
+      INSERT INTO users (name, email, password_hash, role, title, division)
+      VALUES (${name}, ${args.admin.toLowerCase()}, ${hashPassword(password)}, 'admin', ${title}, ${division})
+      ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin', active = 1,
+        title = EXCLUDED.title, division = COALESCE(EXCLUDED.division, users.division)`;
     console.log(`✓ Admin account ready: ${args.admin}`);
   }
 

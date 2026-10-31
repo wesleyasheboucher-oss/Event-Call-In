@@ -5,16 +5,16 @@ import { Sidebar } from "./sidebar";
 async function Shell({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
   return (
-    <div className="lg:pl-64">
+    <div className="md:pl-[72px] lg:pl-64">
       <Sidebar user={user} />
-      <main className="min-h-screen">{children}</main>
+      <main className="min-h-screen pb-[var(--bottom-nav)]">{children}</main>
     </div>
   );
 }
 
 export default function AppLayout({ children }: LayoutProps<"/">) {
   return (
-    <Suspense fallback={<div className="min-h-screen lg:pl-64" />}>
+    <Suspense fallback={<div className="min-h-screen md:pl-[72px] lg:pl-64" />}>
       <Shell>{children}</Shell>
     </Suspense>
   );

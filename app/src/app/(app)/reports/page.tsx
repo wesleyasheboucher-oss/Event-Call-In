@@ -4,7 +4,7 @@ import Link from "next/link";
 import { clsx as cx } from "clsx";
 import { requireUser } from "@/lib/auth";
 import { getCallerReport, getEventStats, listEvents } from "@/lib/queries";
-import { ATTENDANCE, RSVP } from "@/lib/status";
+import { ATTENDANCE, RSVP, RSVP_STATUSES } from "@/lib/status";
 import { eventWhen, fmt } from "@/lib/time";
 import { Page, PageHeader, StatTile } from "@/components/page";
 import { RsvpBar, RsvpLegend } from "@/components/rsvp-bar";
@@ -42,7 +42,7 @@ async function Reports(props: PageProps<"/reports">) {
     <Page>
       <PageHeader
         title="Reports"
-        description="RSVPs, attendance, and caller activity per event."
+        description="Registrations, attendance, and caller activity per event."
         actions={<ExportButtons eventId={selected.id} eventName={selected.name} timeZone={selected.time_zone} />}
       />
 
@@ -68,13 +68,13 @@ async function Reports(props: PageProps<"/reports">) {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <section className="rounded-2xl bg-surface p-6 ring-1 ring-border">
-          <h2 className="mb-5 text-[15px] font-semibold">RSVP status</h2>
+          <h2 className="mb-5 text-[15px] font-semibold">Registration status</h2>
           <RsvpBar counts={stats.rsvp} className="h-3" />
           <div className="mt-4">
             <RsvpLegend counts={stats.rsvp} />
           </div>
-          <dl className="mt-6 grid grid-cols-5 gap-2 text-center">
-            {(["no_data", "confirmed", "tentative", "reconfirmed", "declined"] as const).map((s) => (
+          <dl className="mt-6 grid grid-cols-3 gap-2 text-center sm:grid-cols-5">
+            {RSVP_STATUSES.map((s) => (
               <div key={s} className="rounded-xl bg-surface-2 py-3">
                 <dd className="text-xl font-semibold tabular-nums">{stats.rsvp[s]}</dd>
                 <dt className="mt-0.5 truncate px-1 text-[11px] text-ink-2">{RSVP[s].label}</dt>
@@ -137,7 +137,7 @@ async function Reports(props: PageProps<"/reports">) {
                   <td className="px-6 py-3 font-medium">{c.name}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-3">
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-stone-100 sm:w-40">
+                      <div className="hidden h-1.5 w-24 overflow-hidden rounded-full bg-stone-100 sm:block sm:w-40">
                         <div className="h-full rounded-full bg-accent" style={{ width: `${(c.calls / maxCalls) * 100}%` }} />
                       </div>
                       <span className="tabular-nums">{c.calls}</span>

@@ -1,18 +1,25 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowUp, Download, Plus, Search, Upload, Users, X } from "lucide-react";
+import { toast } from "sonner";
+import { ArrowUp, Check, Download, Phone, Plus, Search, Settings2, Tag as TagIcon, Upload, Users, X } from "lucide-react";
 import type { ContactListRow } from "@/lib/queries";
+import type { TagWithCount } from "@/lib/tag-colors";
+import { TAG_STYLE } from "@/lib/tag-colors";
 import { formatPhone, normalizePhone, telHref } from "@/lib/phone";
 import { fmt } from "@/lib/time";
 import { downloadCsv } from "@/lib/csv";
+import { bulkTagContacts } from "@/app/actions/tags";
 import { Page, PageHeader } from "@/components/page";
+import { Modal } from "@/components/drawer";
+import { TagChip, TagSelector } from "@/components/tags";
 import { Avatar, Button, Card, cx, EmptyState } from "@/components/ui";
 import { ContactDrawer } from "./contact-drawer";
 import { AddContactDrawer } from "./add-contact-drawer";
+import { ManageTagsDrawer } from "./manage-tags-drawer";
 
 type SortKey = "name" | "events" | "attended" | "no_shows" | "last_event" | "added";
 type FilterKey = "import" | "walk_in" | "manual" | "guest" | "no_shows" | "never_attended" | "no_phone" | "no_email";
@@ -33,22 +40,25 @@ const TZ = "America/New_York";
 
 const cmpStr = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });
 
-function SortHead({
-  k,
-  sort,
-  onSort,
-  children,
-  className,
-}: {
+type SortProps = {
   k: SortKey;
   sort: { key: SortKey; dir: 1 | -1 };
   onSort: (k: SortKey) => void;
   children: React.ReactNode;
-  className?: string;
-}) {
-  const active = sort.key === k;
+};
+
+function SortHead({ className, ...props }: SortProps & { className?: string }) {
   return (
     <th className={cx("px-4 py-3 font-medium", className)}>
+      <SortButton {...props} />
+    </th>
+  );
+}
+
+function SortButton({ k, sort, onSort, children }: SortProps) {
+  const active = sort.key === k;
+  return (
+    <>
       <button
         onClick={() => onSort(k)}
         className={cx("group inline-flex items-center gap-1 transition-colors", active ? "text-ink" : "hover:text-ink")}
@@ -63,11 +73,61 @@ function SortHead({
           <ArrowUp className="size-3.5" />
         </motion.span>
       </button>
-    </th>
+    </>
   );
 }
 
-export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
+function Checkbox({ checked, indeterminate, onChange, label }: { checked: boolean; indeterminate?: boolean; onChange: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={indeterminate ? "mixed" : checked}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange();
+      }}
+      className="flex size-11 shrink-0 items-center justify-center md:size-8"
+    >
+      <span
+        className={cx(
+          "flex size-5 items-center justify-center rounded-md ring-1 transition-colors",
+          checked || indeterminate ? "bg-accent text-white ring-accent" : "bg-surface ring-border-strong",
+        )}
+      >
+        {checked && <Check className="size-3.5" strokeWidth={3} />}
+        {indeterminate && !checked && <span className="h-0.5 w-2.5 rounded bg-white" />}
+      </span>
+    </button>
+  );
+}
+
+/** Up to `max` tag chips, then "+n". */
+function TagList({
+  ids,
+  byId,
+  max = 3,
+  wrap = true,
+}: {
+  ids: number[];
+  byId: Map<number, TagWithCount>;
+  max?: number;
+  wrap?: boolean;
+}) {
+  const tags = ids.map((id) => byId.get(id)).filter(Boolean) as TagWithCount[];
+  if (!tags.length) return null;
+  return (
+    <span className={cx("flex min-w-0 items-center gap-1", wrap ? "flex-wrap" : "flex-nowrap")}>
+      {tags.slice(0, max).map((t) => (
+        <TagChip key={t.id} tag={t} size="xs" className={wrap ? undefined : "max-w-[84px]"} />
+      ))}
+      {tags.length > max && <span className="text-[11px] text-ink-3">+{tags.length - max}</span>}
+    </span>
+  );
+}
+
+export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; tags: TagWithCount[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -76,9 +136,17 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
   const [query, setQuery] = useState("");
   const q = useDeferredValue(query);
   const [filters, setFilters] = useState<Set<FilterKey>>(new Set());
+  const [tagFilter, setTagFilter] = useState<Set<number>>(new Set());
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   const [limit, setLimit] = useState(PAGE);
   const [adding, setAdding] = useState(false);
+  const [managing, setManaging] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selecting, setSelecting] = useState(false); // phones: checkboxes only shown in select mode
+  const [bulk, setBulk] = useState<null | "add" | "remove">(null);
+  const [bulkBusy, startBulk] = useTransition();
+
+  const tagsById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
 
   function openContact(id: number | null) {
     const next = new URLSearchParams(params.toString());
@@ -96,6 +164,7 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
     const rows = contacts.filter((c) => {
       if (sourceFilters.length && !sourceFilters.some((f) => f.test(c))) return false;
       if (!flagFilters.every((f) => f.test(c))) return false;
+      if (tagFilter.size && !c.tag_ids.some((id) => tagFilter.has(id))) return false;
       if (!text) return true;
       const name = `${c.first_name} ${c.last_name}`.toLowerCase();
       return (
@@ -115,9 +184,12 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
       added: (a, b) => a.created_at.localeCompare(b.created_at),
     };
     return rows.sort((a, b) => by[key](a, b) * dir || by.name(a, b));
-  }, [contacts, q, filters, sort]);
+  }, [contacts, q, filters, tagFilter, sort]);
 
   const visible = filtered.slice(0, limit);
+  const filtersActive = filters.size > 0 || tagFilter.size > 0;
+  const allFilteredSelected = filtered.length > 0 && filtered.every((c) => selected.has(c.id));
+  const someSelected = selected.size > 0;
 
   function toggleFilter(k: FilterKey) {
     setLimit(PAGE);
@@ -129,12 +201,56 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
     });
   }
 
+  function toggleTagFilter(id: number) {
+    setLimit(PAGE);
+    setTagFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelected(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(allFilteredSelected ? new Set() : new Set(filtered.map((c) => c.id)));
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+    setSelecting(false);
+  }
+
   function toggleSort(key: SortKey) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: key === "name" ? 1 : -1 }));
   }
 
-  function exportCsv() {
-    downloadCsv(`contacts-${new Date().toISOString().slice(0, 10)}`, filtered, [
+  function runBulk(tag: { id: number } | { name: string }) {
+    if (!bulk) return;
+    const mode = bulk;
+    startBulk(async () => {
+      const res = await bulkTagContacts([...selected], tag, mode);
+      if (!res.ok) return void toast.error(res.error);
+      const n = res.changed;
+      toast.success(
+        mode === "add"
+          ? `Tagged ${n} ${n === 1 ? "person" : "people"} “${res.tag.name}”`
+          : `Removed “${res.tag.name}” from ${n} ${n === 1 ? "person" : "people"}`,
+      );
+      setBulk(null);
+    });
+  }
+
+  function exportCsv(rows: ContactListRow[], name: string) {
+    downloadCsv(`${name}-${new Date().toISOString().slice(0, 10)}`, rows, [
       { header: "First name", value: (c) => c.first_name },
       { header: "Last name", value: (c) => c.last_name },
       { header: "Phone", value: (c) => formatPhone(c.phone) },
@@ -143,6 +259,7 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
       { header: "City", value: (c) => c.city },
       { header: "State", value: (c) => c.state },
       { header: "ZIP", value: (c) => c.zip },
+      { header: "Tags", value: (c) => c.tag_ids.map((id) => tagsById.get(id)?.name).filter(Boolean).join(", ") },
       { header: "Notes", value: (c) => c.notes },
       { header: "Source", value: (c) => c.source },
       { header: "Events", value: (c) => c.events_count },
@@ -153,15 +270,21 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
     ]);
   }
 
+  const pill = (on: boolean) =>
+    cx(
+      "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 transition-colors ring-inset md:h-8",
+      on ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink hover:ring-border-strong",
+    );
+
   return (
-    <Page wide>
+    <Page wide className={cx(someSelected && "pb-32")}>
       <PageHeader
         title="Contacts"
         description={`${contacts.length.toLocaleString()} people across all your events.`}
         actions={
           <>
-            <Button variant="ghost" icon={<Download className="size-4" />} onClick={exportCsv}>
-              Export
+            <Button variant="ghost" icon={<Download className="size-4" />} onClick={() => exportCsv(filtered, "contacts")}>
+              <span className="hidden sm:inline">Export</span>
             </Button>
             <Link href="/contacts/import">
               <Button variant="secondary" icon={<Upload className="size-4" />}>
@@ -169,88 +292,114 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
               </Button>
             </Link>
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setAdding(true)}>
-              Add contact
+              Add<span className="hidden sm:inline"> contact</span>
             </Button>
           </>
         }
       />
 
-      <div className="mb-5 space-y-4">
-        <div className="relative max-w-md">
-          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-3" />
-          <input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setLimit(PAGE);
-            }}
-            placeholder="Search name, phone, or email"
-            className="h-11 w-full rounded-xl bg-surface pr-10 pl-10 text-sm ring-1 ring-border transition-shadow ring-inset placeholder:text-ink-3 focus:ring-2 focus:ring-accent focus:outline-none"
-          />
-          <AnimatePresence>
-            {query && (
-              <motion.button
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.8 }}
-                onClick={() => setQuery("")}
-                className="absolute top-1/2 right-3 flex size-6 -translate-y-1/2 items-center justify-center rounded-full text-ink-3 hover:bg-surface-2 hover:text-ink"
-                aria-label="Clear search"
-              >
-                <X className="size-3.5" />
-              </motion.button>
-            )}
-          </AnimatePresence>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {FILTERS.map((f, i) => {
-            const on = filters.has(f.key);
-            return (
-              <span key={f.key} className="contents">
-                {i > 0 && FILTERS[i - 1].group !== f.group && <span className="mx-1 h-5 w-px bg-border" />}
+      <div className="mb-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1 md:max-w-md">
+            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-3" />
+            <input
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setLimit(PAGE);
+              }}
+              placeholder="Search name, phone, or email"
+              className="h-11 w-full rounded-xl bg-surface pr-10 pl-10 text-base ring-1 ring-border transition-shadow ring-inset placeholder:text-ink-3 focus:ring-2 focus:ring-accent focus:outline-none md:text-sm"
+            />
+            <AnimatePresence>
+              {query && (
                 <motion.button
-                  layout
-                  onClick={() => toggleFilter(f.key)}
-                  className={cx(
-                    "inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 transition-colors ring-inset",
-                    on ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink hover:ring-border-strong",
-                  )}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  onClick={() => setQuery("")}
+                  className="absolute top-1/2 right-2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-ink-3 hover:bg-surface-2 hover:text-ink"
+                  aria-label="Clear search"
                 >
-                  {f.label}
-                  <AnimatePresence>
-                    {on && (
-                      <motion.span
-                        initial={{ width: 0, opacity: 0 }}
-                        animate={{ width: "auto", opacity: 1 }}
-                        exit={{ width: 0, opacity: 0 }}
-                        className="inline-flex overflow-hidden"
-                      >
-                        <X className="size-3" />
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
+                  <X className="size-3.5" />
                 </motion.button>
-              </span>
+              )}
+            </AnimatePresence>
+          </div>
+          <Button
+            variant={selecting ? "soft" : "secondary"}
+            className="h-11 md:hidden"
+            onClick={() => (selecting ? clearSelection() : setSelecting(true))}
+          >
+            {selecting ? "Done" : "Select"}
+          </Button>
+        </div>
+
+        {/* Filters scroll sideways on phones instead of wrapping into a wall of pills */}
+        <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
+          {FILTERS.map((f, i) => (
+            <span key={f.key} className="contents">
+              {i > 0 && FILTERS[i - 1].group !== f.group && <span className="mx-1 h-5 w-px shrink-0 bg-border" />}
+              <button onClick={() => toggleFilter(f.key)} className={pill(filters.has(f.key))}>
+                {f.label}
+                {filters.has(f.key) && <X className="size-3" />}
+              </button>
+            </span>
+          ))}
+        </div>
+
+        <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
+          <span className="flex shrink-0 items-center gap-1.5 text-[13px] text-ink-3">
+            <TagIcon className="size-3.5" /> Tags
+          </span>
+          {tags.map((t) => {
+            const on = tagFilter.has(t.id);
+            return (
+              <button
+                key={t.id}
+                onClick={() => toggleTagFilter(t.id)}
+                className={cx(
+                  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium ring-1 transition-all ring-inset md:h-8",
+                  on ? cx(TAG_STYLE[t.color].chip, "ring-2") : "bg-surface text-ink-2 ring-border hover:ring-border-strong",
+                )}
+              >
+                <span className={cx("size-2 rounded-full", TAG_STYLE[t.color].dot)} />
+                {t.name}
+                <span className="text-[11px] opacity-60 tabular-nums">{t.count}</span>
+              </button>
             );
           })}
-          <AnimatePresence>
-            {(filters.size > 0 || q) && (
-              <motion.span
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="ml-2 text-[13px] text-ink-3 tabular-nums"
-              >
-                {filtered.length.toLocaleString()} {filtered.length === 1 ? "match" : "matches"}
-                {filters.size > 0 && (
-                  <button onClick={() => setFilters(new Set())} className="ml-2 font-medium text-accent hover:underline">
-                    Clear filters
-                  </button>
-                )}
-              </motion.span>
-            )}
-          </AnimatePresence>
+          <button
+            onClick={() => setManaging(true)}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-accent hover:bg-accent-soft md:h-8"
+          >
+            <Settings2 className="size-3.5" /> {tags.length ? "Manage" : "Create tags"}
+          </button>
         </div>
+
+        <AnimatePresence>
+          {(filtersActive || q) && (
+            <motion.p
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="text-[13px] text-ink-3 tabular-nums"
+            >
+              {filtered.length.toLocaleString()} {filtered.length === 1 ? "match" : "matches"}
+              {filtersActive && (
+                <button
+                  onClick={() => {
+                    setFilters(new Set());
+                    setTagFilter(new Set());
+                  }}
+                  className="ml-2 font-medium text-accent hover:underline"
+                >
+                  Clear filters
+                </button>
+              )}
+            </motion.p>
+          )}
+        </AnimatePresence>
       </div>
 
       <Card className="overflow-hidden">
@@ -270,86 +419,157 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-[13px] text-ink-2">
-                  <SortHead sort={sort} onSort={toggleSort} k="name" className="pl-6">
-                    Name
-                  </SortHead>
-                  <th className="px-4 py-3 font-medium">Phone</th>
-                  <th className="px-4 py-3 font-medium">Email</th>
-                  <SortHead sort={sort} onSort={toggleSort} k="events" className="text-right">
-                    Events
-                  </SortHead>
-                  <SortHead sort={sort} onSort={toggleSort} k="attended" className="text-right">
-                    Attended
-                  </SortHead>
-                  <SortHead sort={sort} onSort={toggleSort} k="no_shows" className="text-right">
-                    No-shows
-                  </SortHead>
-                  <SortHead sort={sort} onSort={toggleSort} k="last_event">Last event</SortHead>
-                  <SortHead sort={sort} onSort={toggleSort} k="added" className="pr-6">
-                    Added
-                  </SortHead>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((c, i) => {
-                  const name = `${c.first_name} ${c.last_name}`;
-                  return (
-                    <motion.tr
-                      key={c.id}
-                      initial={i < 30 ? { opacity: 0, y: 4 } : false}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: Math.min(i, 30) * 0.012, duration: 0.25 }}
-                      onClick={() => openContact(c.id)}
-                      className={cx(
-                        "cursor-pointer border-b border-border/70 transition-colors last:border-0 hover:bg-surface-2/70",
-                        openId === c.id && "bg-accent-soft/50 hover:bg-accent-soft/70",
-                      )}
-                    >
-                      <td className="py-3 pr-4 pl-6">
-                        <div className="flex items-center gap-3">
-                          <Avatar name={name} size="sm" />
-                          <span className="font-medium text-ink">{name}</span>
-                          {(c.source === "walk_in" || c.source === "guest") && (
-                            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 ring-1 ring-violet-200 ring-inset">
-                              {c.source === "guest" ? "Guest" : "Walk-in"}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {c.phone ? (
-                          <a
-                            href={telHref(c.phone)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-ink-2 tabular-nums hover:text-accent"
-                          >
-                            {formatPhone(c.phone)}
-                          </a>
-                        ) : (
-                          <span className="text-ink-3">—</span>
+          <>
+            {/* Phones and small tablets: stacked cards */}
+            <ul className="divide-y divide-border md:hidden">
+              {selecting && (
+                <li className="flex items-center gap-1 bg-surface-2/60 px-2 py-1 text-[13px] text-ink-2">
+                  <Checkbox checked={allFilteredSelected} indeterminate={someSelected} onChange={toggleAll} label="Select all" />
+                  Select all {filtered.length.toLocaleString()}
+                </li>
+              )}
+              {visible.map((c) => {
+                const name = `${c.first_name} ${c.last_name}`;
+                const isSel = selected.has(c.id);
+                return (
+                  <li
+                    key={c.id}
+                    onClick={() => (selecting ? toggleSelected(c.id) : openContact(c.id))}
+                    className={cx(
+                      "flex min-h-[72px] items-center gap-3 px-4 py-3 transition-colors active:bg-surface-2",
+                      isSel && "bg-accent-soft/60",
+                      selecting && "pl-1",
+                    )}
+                  >
+                    {selecting && <Checkbox checked={isSel} onChange={() => toggleSelected(c.id)} label={`Select ${name}`} />}
+                    <Avatar name={name} size="md" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-[15px] font-medium">{name}</span>
+                        {(c.source === "walk_in" || c.source === "guest") && (
+                          <span className="shrink-0 rounded-full bg-violet-50 px-1.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200 ring-inset">
+                            {c.source === "guest" ? "Guest" : "Walk-in"}
+                          </span>
                         )}
-                      </td>
-                      <td className="max-w-[240px] truncate px-4 py-3 text-ink-2">{c.email || <span className="text-ink-3">—</span>}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{c.events_count}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        <span className={c.attended_count ? "text-emerald-700" : "text-ink-3"}>{c.attended_count}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        <span className={c.no_show_count ? "font-medium text-rose-600" : "text-ink-3"}>{c.no_show_count}</span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-ink-2">
-                        {c.last_event_at ? fmt(c.last_event_at, TZ, "MMM d, yyyy") : <span className="text-ink-3">—</span>}
-                      </td>
-                      <td className="py-3 pr-6 pl-4 whitespace-nowrap text-ink-3">{fmt(c.created_at, TZ, "MMM d, yyyy")}</td>
-                    </motion.tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                      <div className="mt-0.5 text-xs text-ink-3">
+                        {c.events_count} event{c.events_count === 1 ? "" : "s"} · {c.attended_count} attended
+                        {c.no_show_count > 0 && <span className="text-rose-600"> · {c.no_show_count} no-show</span>}
+                      </div>
+                      {c.tag_ids.length > 0 && (
+                        <div className="mt-1.5">
+                          <TagList ids={c.tag_ids} byId={tagsById} max={3} />
+                        </div>
+                      )}
+                    </div>
+                    {c.phone && !selecting && (
+                      <a
+                        href={telHref(c.phone)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent"
+                        aria-label={`Call ${name}`}
+                      >
+                        <Phone className="size-4" />
+                      </a>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[920px] text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-[13px] text-ink-2">
+                    <th className="py-3 pr-3 pl-3 font-medium">
+                      <span className="flex items-center gap-1">
+                        <Checkbox checked={allFilteredSelected} indeterminate={someSelected} onChange={toggleAll} label="Select all" />
+                        <SortButton k="name" sort={sort} onSort={toggleSort}>
+                          Name
+                        </SortButton>
+                      </span>
+                    </th>
+                    <th className="px-3 py-3 font-medium">Phone</th>
+                    <th className="px-4 py-3 font-medium">Email</th>
+                    <SortHead sort={sort} onSort={toggleSort} k="events" className="px-3 text-right">
+                      Events
+                    </SortHead>
+                    <SortHead sort={sort} onSort={toggleSort} k="attended" className="px-3 text-right">
+                      Attended
+                    </SortHead>
+                    <SortHead sort={sort} onSort={toggleSort} k="no_shows" className="px-3 text-right whitespace-nowrap">
+                      No-shows
+                    </SortHead>
+                    <SortHead sort={sort} onSort={toggleSort} k="last_event">
+                      Last event
+                    </SortHead>
+                    <SortHead sort={sort} onSort={toggleSort} k="added" className="pr-6">
+                      Added
+                    </SortHead>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visible.map((c, i) => {
+                    const name = `${c.first_name} ${c.last_name}`;
+                    const isSel = selected.has(c.id);
+                    return (
+                      <motion.tr
+                        key={c.id}
+                        initial={i < 30 ? { opacity: 0, y: 4 } : false}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: Math.min(i, 30) * 0.012, duration: 0.25 }}
+                        onClick={() => openContact(c.id)}
+                        className={cx(
+                          "cursor-pointer border-b border-border/70 transition-colors last:border-0 hover:bg-surface-2/70",
+                          (openId === c.id || isSel) && "bg-accent-soft/50 hover:bg-accent-soft/70",
+                        )}
+                      >
+                        <td className="py-3 pr-3 pl-3">
+                          <div className="flex items-center gap-1">
+                            <Checkbox checked={isSel} onChange={() => toggleSelected(c.id)} label={`Select ${name}`} />
+                            <Avatar name={name} size="sm" className="mr-2" />
+                            <div className="flex max-w-[180px] min-w-0 items-center gap-2 whitespace-nowrap">
+                              <span className="truncate font-medium text-ink" title={name}>
+                                {name}
+                              </span>
+                              {(c.source === "walk_in" || c.source === "guest") && (
+                                <span className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700 ring-1 ring-violet-200 ring-inset">
+                                  {c.source === "guest" ? "Guest" : "Walk-in"}
+                                </span>
+                              )}
+                              <TagList ids={c.tag_ids} byId={tagsById} max={1} wrap={false} />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 whitespace-nowrap">
+                          {c.phone ? (
+                            <a href={telHref(c.phone)} onClick={(e) => e.stopPropagation()} className="text-ink-2 tabular-nums hover:text-accent">
+                              {formatPhone(c.phone)}
+                            </a>
+                          ) : (
+                            <span className="text-ink-3">—</span>
+                          )}
+                        </td>
+                        <td className="max-w-[180px] truncate px-4 py-3 text-ink-2" title={c.email || undefined}>{c.email || <span className="text-ink-3">—</span>}</td>
+                        <td className="px-3 py-3 text-right tabular-nums">{c.events_count}</td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          <span className={c.attended_count ? "text-emerald-700" : "text-ink-3"}>{c.attended_count}</span>
+                        </td>
+                        <td className="px-3 py-3 text-right tabular-nums">
+                          <span className={c.no_show_count ? "font-medium text-rose-600" : "text-ink-3"}>{c.no_show_count}</span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-ink-2">
+                          {c.last_event_at ? fmt(c.last_event_at, TZ, "MMM d, yyyy") : <span className="text-ink-3">—</span>}
+                        </td>
+                        <td className="py-3 pr-6 pl-4 whitespace-nowrap text-ink-3">{fmt(c.created_at, TZ, "MMM d, yyyy")}</td>
+                      </motion.tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
             {filtered.length > limit && (
               <div className="flex items-center justify-center gap-3 border-t border-border py-4 text-[13px] text-ink-3">
                 Showing {limit.toLocaleString()} of {filtered.length.toLocaleString()}
@@ -358,9 +578,68 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
                 </Button>
               </div>
             )}
-          </div>
+          </>
         )}
       </Card>
+
+      {/* Bulk action bar */}
+      <AnimatePresence>
+        {someSelected && (
+          <motion.div
+            initial={{ y: 120, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 120, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 420, damping: 36 }}
+            className="fixed inset-x-0 bottom-[var(--bottom-nav)] z-40 px-3 pb-3 md:left-[72px] lg:left-64"
+          >
+            <div className="mx-auto flex max-w-2xl items-center gap-1 rounded-2xl bg-ink p-2 text-white shadow-[var(--shadow-lift)]">
+              <span className="px-3 text-sm font-medium tabular-nums">{selected.size.toLocaleString()} selected</span>
+              <div className="ml-auto flex items-center gap-1">
+                <button onClick={() => setBulk("add")} className="flex h-10 items-center gap-1.5 rounded-xl px-3 text-sm font-medium hover:bg-white/10">
+                  <TagIcon className="size-4" /> <span>Tag</span>
+                </button>
+                <button onClick={() => setBulk("remove")} className="flex h-10 items-center gap-1.5 rounded-xl px-3 text-sm font-medium hover:bg-white/10">
+                  <X className="size-4" /> <span className="hidden sm:inline">Remove tag</span>
+                  <span className="sm:hidden">Untag</span>
+                </button>
+                <button
+                  onClick={() => exportCsv(contacts.filter((c) => selected.has(c.id)), "contacts-selected")}
+                  className="hidden h-10 items-center gap-1.5 rounded-xl px-3 text-sm font-medium hover:bg-white/10 sm:flex"
+                >
+                  <Download className="size-4" /> Export
+                </button>
+                <button
+                  onClick={clearSelection}
+                  className="flex size-10 items-center justify-center rounded-xl hover:bg-white/10"
+                  aria-label="Clear selection"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <Modal
+        open={bulk !== null}
+        onClose={() => setBulk(null)}
+        title={bulk === "remove" ? `Remove a tag from ${selected.size}` : `Tag ${selected.size} ${selected.size === 1 ? "person" : "people"}`}
+        size="sm"
+      >
+        <p className="mb-1 text-sm text-ink-2">
+          {bulk === "remove" ? "Pick the tag to take off everyone selected." : "Pick a tag, or type a new name to create it."}
+        </p>
+        <TagSelector
+          allTags={tags}
+          selectedIds={new Set()}
+          busy={bulkBusy}
+          onPick={(t) => runBulk({ id: t.id })}
+          onCreate={(name) => (bulk === "add" ? runBulk({ name }) : toast.error("That tag doesn't exist."))}
+          onClose={() => setBulk(null)}
+          placeholder={bulk === "remove" ? "Find a tag" : "Find or create a tag"}
+        />
+      </Modal>
 
       <ContactDrawer contactId={openId} onClose={() => openContact(null)} onOpenContact={openContact} />
       <AddContactDrawer
@@ -375,6 +654,7 @@ export function ContactsView({ contacts }: { contacts: ContactListRow[] }) {
           openContact(id);
         }}
       />
+      <ManageTagsDrawer open={managing} onClose={() => setManaging(false)} tags={tags} />
     </Page>
   );
 }

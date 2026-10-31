@@ -300,7 +300,7 @@ export function EventForm({
               <Field label="Doors open">
                 <Input type="datetime-local" value={v.doors_local} onChange={(e) => set("doors_local", e.target.value)} />
               </Field>
-              <Field label="RSVP deadline" hint="Callers see a warning after it passes.">
+              <Field label="Registration deadline" hint="Callers see a warning after it passes.">
                 <Input type="datetime-local" value={v.rsvp_deadline_local} onChange={(e) => set("rsvp_deadline_local", e.target.value)} />
               </Field>
               <Field label="Repeats">
@@ -669,7 +669,7 @@ export function EventForm({
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 300, damping: 30, delay: 0.2 }}
-        className="fixed inset-x-0 bottom-0 z-40 lg:left-64"
+        className="fixed inset-x-0 bottom-[var(--bottom-nav)] z-40 px-3 md:left-[72px] lg:left-64"
       >
         <div className="mx-auto mb-4 flex max-w-3xl items-center gap-3 rounded-2xl bg-surface/90 px-4 py-3 shadow-[var(--shadow-lift)] ring-1 ring-border backdrop-blur sm:mx-auto sm:px-5">
           <span className="hidden flex-1 text-sm text-ink-2 sm:block">

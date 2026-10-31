@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Call-In",
-  description: "Event call lists, RSVPs, and attendance",
+  description: "Event call lists, registrations, and attendance",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -25,6 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {children}
         <Toaster
           position="bottom-center"
+          mobileOffset={{ bottom: "calc(var(--bottom-nav) + 12px)" }}
           toastOptions={{
             classNames: {
               toast: "!rounded-xl !border-border !shadow-[var(--shadow-lift)] !font-sans",

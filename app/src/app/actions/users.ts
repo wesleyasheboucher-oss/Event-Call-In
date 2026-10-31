@@ -5,9 +5,17 @@ import { actionUser } from "@/lib/auth";
 import { get, run } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { isValidEmail, normalizeEmail } from "@/lib/phone";
-import { ROLES, type Role } from "@/lib/status";
+import { DIVISIONS, ROLES, type Role } from "@/lib/status";
 
-export type UserInput = { id?: number; name: string; email: string; role: Role; password?: string };
+export type UserInput = {
+  id?: number;
+  name: string;
+  email: string;
+  role: Role;
+  title: string;
+  division: number | null;
+  password?: string;
+};
 export type UserResult = { ok: true } | { ok: false; error: string };
 
 async function activeAdminCount(excludeId?: number): Promise<number> {
@@ -25,6 +33,10 @@ export async function saveUser(input: UserInput): Promise<UserResult> {
   if (!name) return { ok: false, error: "Name is required." };
   if (!isValidEmail(email)) return { ok: false, error: "Enter a valid email." };
   if (!ROLES.includes(input.role)) return { ok: false, error: "Pick a role." };
+  const title = input.title.trim().slice(0, 80);
+  if (!title) return { ok: false, error: "Add their position title." };
+  const division = Number(input.division);
+  if (!(DIVISIONS as readonly number[]).includes(division)) return { ok: false, error: "Pick a division (1–7)." };
   if ((!input.id || password) && password.length < 8) return { ok: false, error: "Password must be at least 8 characters." };
 
   const clash = await get<{ id: number }>("SELECT id FROM users WHERE email = ? AND id <> ?", [email, input.id ?? -1]);
@@ -37,14 +49,28 @@ export async function saveUser(input: UserInput): Promise<UserResult> {
       if (input.id === me.id) return { ok: false, error: "You can't remove your own admin role." };
       if (current.active && (await activeAdminCount(input.id)) === 0) return { ok: false, error: "There must be at least one active admin." };
     }
-    await run("UPDATE users SET name = ?, email = ?, role = ? WHERE id = ?", [name, email, input.role, input.id]);
+    await run("UPDATE users SET name = ?, email = ?, role = ?, title = ?, division = ? WHERE id = ?", [
+      name,
+      email,
+      input.role,
+      title,
+      division,
+      input.id,
+    ]);
     if (password) {
       await run("UPDATE users SET password_hash = ? WHERE id = ?", [hashPassword(password), input.id]);
       // Reset signs them out everywhere else.
       if (input.id !== me.id) await run("DELETE FROM sessions WHERE user_id = ?", [input.id]);
     }
   } else {
-    await run("INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)", [name, email, hashPassword(password), input.role]);
+    await run("INSERT INTO users (name, email, password_hash, role, title, division) VALUES (?, ?, ?, ?, ?, ?)", [
+      name,
+      email,
+      hashPassword(password),
+      input.role,
+      title,
+      division,
+    ]);
   }
   refresh();
   return { ok: true };

@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import { fetchContactDetail, type ContactDetail } from "@/app/actions/registrations";
 import { deleteContact, updateContact, type ContactInput } from "@/app/actions/contacts";
 import { Drawer, Modal } from "@/components/drawer";
@@ -17,6 +18,7 @@ import {
   QuickStats,
 } from "@/components/contact-panel";
 import { Button, SectionTitle } from "@/components/ui";
+import { ContactTagsEditor } from "@/components/tags";
 import { formatPhone } from "@/lib/phone";
 import { ContactFields, DuplicateWarning, useDuplicates, validateContact } from "./contact-form";
 
@@ -44,6 +46,7 @@ export function ContactDrawer({
   onClose: () => void;
   onOpenContact: (id: number) => void;
 }) {
+  const router = useRouter();
   const [detail, setDetail] = useState<ContactDetail | null>(null);
   const [loadedId, setLoadedId] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
@@ -168,6 +171,17 @@ export function ContactDrawer({
                 transition={{ duration: 0.2 }}
                 className="space-y-9 px-6 py-6"
               >
+                <section>
+                  <SectionTitle>Tags</SectionTitle>
+                  <ContactTagsEditor
+                    contactId={detail.contact.id}
+                    tags={detail.tags}
+                    onChange={(tags) => {
+                      setDetail((d) => (d ? { ...d, tags } : d));
+                      router.refresh();
+                    }}
+                  />
+                </section>
                 <QuickStats history={detail.history} />
                 <section>
                   <SectionTitle

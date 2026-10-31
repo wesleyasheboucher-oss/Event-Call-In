@@ -1,6 +1,6 @@
 // Shared between server and client: status vocabularies and their presentation.
 
-export const RSVP_STATUSES = ["no_data", "confirmed", "tentative", "reconfirmed", "declined"] as const;
+export const RSVP_STATUSES = ["no_data", "tentative", "confirmed", "reconfirmed", "declined"] as const;
 export type RsvpStatus = (typeof RSVP_STATUSES)[number];
 
 export const ATTENDANCE_STATUSES = ["pending", "attended", "no_show"] as const;
@@ -75,6 +75,9 @@ export const EVENT_STATUS: Record<EventStatus, Style> = {
   cancelled: { label: "Cancelled", dot: "bg-rose-500", chip: "bg-rose-50 text-rose-700 ring-rose-200", solid: "" },
   completed: { label: "Completed", dot: "bg-indigo-500", chip: "bg-indigo-50 text-indigo-700 ring-indigo-200", solid: "" },
 };
+
+/** Team divisions are numbered 1 through 7. */
+export const DIVISIONS = [1, 2, 3, 4, 5, 6, 7] as const;
 
 export const ROLE_LABEL: Record<Role, string> = {
   admin: "Admin",

@@ -15,6 +15,8 @@ import {
 } from "@/lib/queries";
 import { addGuest as addGuestToHost, removeGuest as removeGuestFromHost, type GuestInput } from "@/lib/guests";
 import { normalizeEmail, normalizePhone } from "@/lib/phone";
+import { getContactTags } from "@/lib/tags";
+import type { Tag } from "@/lib/tag-colors";
 import { ATTENDANCE_STATUSES, RSVP_STATUSES, type AttendanceStatus, type RsvpStatus } from "@/lib/status";
 import type { ChangeRow, Contact, GuestRow, HistoryRow, NoteRow } from "@/lib/types";
 
@@ -22,6 +24,7 @@ export type ContactDetail = {
   contact: Contact;
   history: HistoryRow[];
   notes: NoteRow[];
+  tags: Tag[];
 };
 
 export type RegistrationDetail = ContactDetail & {
@@ -33,13 +36,14 @@ export type RegistrationDetail = ContactDetail & {
 
 export async function fetchContactDetail(contactId: number): Promise<ContactDetail | null> {
   await actionUser();
-  const [contact, history, notes] = await Promise.all([
+  const [contact, history, notes, tags] = await Promise.all([
     getContact(contactId),
     getContactHistory(contactId),
     getContactNotes(contactId),
+    getContactTags(contactId),
   ]);
   if (!contact) return null;
-  return { contact, history, notes };
+  return { contact, history, notes, tags };
 }
 
 export async function fetchRegistrationDetail(registrationId: number): Promise<RegistrationDetail | null> {

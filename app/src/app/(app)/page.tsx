@@ -100,10 +100,10 @@ export default async function HomePage() {
                     <div className="mt-4 flex gap-2">
                       {(user.role === "admin" || user.role === "caller") && (
                         <Link
-                          href={`/call/${e.id}`}
+                          href={`/call?e=${e.id}`}
                           className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent-soft px-3 text-[13px] font-medium text-accent-ink transition-colors hover:bg-indigo-100"
                         >
-                          <PhoneCall className="size-3.5" /> Work call list
+                          <PhoneCall className="size-3.5" /> Call In
                         </Link>
                       )}
                       {days === 0 && (user.role === "admin" || user.role === "signin") && (
@@ -128,7 +128,7 @@ export default async function HomePage() {
           {[
             { href: "/events/new", icon: CalendarDays, title: "New event", body: "Set up details and build a call list." },
             { href: "/contacts/import", icon: Upload, title: "Import contacts", body: "CSV or Excel, with duplicate checks." },
-            { href: "/reports", icon: ArrowRight, title: "Reports", body: "Show rates, RSVPs, and caller activity." },
+            { href: "/reports", icon: ArrowRight, title: "Reports", body: "Show rates, registrations, and caller activity." },
           ].map((a) => (
             <Link
               key={a.href}

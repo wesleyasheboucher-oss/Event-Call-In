@@ -19,6 +19,8 @@ export type CallListFilter = {
   mode: "all" | "attended_any" | "attended_event" | "none";
   attendedEventId?: number | null;
   excludeNoShows: boolean;
+  /** Only people with at least one of these tags (empty/undefined = no tag filter). */
+  tagIds?: number[];
 };
 
 export type SaveResult = { ok: true; id: number; created: number } | { ok: false; errors: Record<string, string> };

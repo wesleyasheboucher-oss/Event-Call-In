@@ -10,7 +10,7 @@ import type { Role } from "./status";
 export const SESSION_COOKIE = "callin_session";
 const SESSION_DAYS = 14;
 
-export type SessionUser = { id: number; name: string; email: string; role: Role };
+export type SessionUser = { id: number; name: string; email: string; role: Role; title: string; division: number | null };
 
 export async function createSession(userId: number) {
   const token = randomBytes(32).toString("base64url");
@@ -39,13 +39,13 @@ export const getUser = cache(async (): Promise<SessionUser | null> => {
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const row = await get<SessionUser & { expires_at: string }>(
-    `SELECT u.id, u.name, u.email, u.role, s.expires_at
+    `SELECT u.id, u.name, u.email, u.role, u.title, u.division, s.expires_at
        FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.token = ? AND u.active = 1`,
     [token],
   );
   if (!row || row.expires_at < new Date().toISOString()) return null;
-  return { id: row.id, name: row.name, email: row.email, role: row.role };
+  return { id: row.id, name: row.name, email: row.email, role: row.role, title: row.title, division: row.division };
 });
 
 /** For pages: redirects to /login (or home) when the user can't see this screen. */

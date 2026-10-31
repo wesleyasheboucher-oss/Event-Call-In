@@ -465,8 +465,8 @@ export default async function EventPage(props: PageProps<"/events/[id]">) {
                 <div className={clsx("flex items-center gap-2.5", deadlinePassed ? "font-medium text-amber-700" : "text-ink-2")}>
                   <Clock className={clsx("size-4", deadlinePassed ? "text-amber-600" : "text-ink-3")} />
                   {deadlinePassed
-                    ? `RSVP deadline passed (${fmt(event.rsvp_deadline, tz, "MMM d")})`
-                    : `RSVP by ${fmt(event.rsvp_deadline, tz, "MMM d")} · ${relativeDays(deadlineDays!).toLowerCase()}`}
+                    ? `Registration deadline passed (${fmt(event.rsvp_deadline, tz, "MMM d")})`
+                    : `Register by ${fmt(event.rsvp_deadline, tz, "MMM d")} · ${relativeDays(deadlineDays!).toLowerCase()}`}
                 </div>
               )}
               {event.capacity != null && (
@@ -480,10 +480,10 @@ export default async function EventPage(props: PageProps<"/events/[id]">) {
             <div className="mt-6 flex flex-col gap-2">
               {canCall && (
                 <Link
-                  href={`/call/${event.id}`}
+                  href={`/call?e=${event.id}`}
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-accent text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-hover"
                 >
-                  <PhoneCall className="size-4" /> Work call list
+                  <PhoneCall className="size-4" /> Call In
                 </Link>
               )}
               {canSignIn && (

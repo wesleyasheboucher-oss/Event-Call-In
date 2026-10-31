@@ -158,6 +158,11 @@ function filterSql(filter: CallListFilter): { sql: string; params: (string | num
   if (filter.excludeNoShows) {
     where.push("c.id NOT IN (SELECT contact_id FROM registrations WHERE attendance = 'no_show')");
   }
+  const tagIds = (filter.tagIds ?? []).filter((id) => Number.isInteger(id));
+  if (tagIds.length) {
+    where.push(`c.id IN (SELECT contact_id FROM contact_tags WHERE tag_id IN (${tagIds.map(() => "?").join(",")}))`);
+    params.push(...tagIds);
+  }
   return { sql: `SELECT c.id FROM contacts c ${where.length ? "WHERE " + where.join(" AND ") : ""}`, params };
 }
 

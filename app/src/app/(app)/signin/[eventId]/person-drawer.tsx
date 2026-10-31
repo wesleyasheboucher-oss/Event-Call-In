@@ -7,6 +7,7 @@ import { Check, RotateCcw, Send, UserPlus, UserX } from "lucide-react";
 import { Drawer } from "@/components/drawer";
 import { addCallNote, fetchRegistrationDetail, type RegistrationDetail } from "@/app/actions/registrations";
 import { GuestsPanel } from "@/components/guests-panel";
+import { ContactTagsEditor } from "@/components/tags";
 import { AddressBlock, ContactHeader, HistoryList, NotesList, PanelSkeleton, QuickStats, SectionTitle } from "@/components/contact-panel";
 import { AttendanceChip, RsvpChip } from "@/components/status";
 import { Button, Chip, Textarea } from "@/components/ui";
@@ -113,6 +114,12 @@ export function PersonDrawer({
             {row.walk_in ? null : <RsvpChip status={row.rsvp} />}
             <AttendanceChip status={row.attendance} />
           </div>
+
+          <ContactTagsEditor
+            contactId={detail.contact.id}
+            tags={detail.tags}
+            onChange={(tags) => setDetail((d) => (d ? { ...d, tags } : d))}
+          />
 
           {detail.guestOf ? (
             <p className="flex items-center gap-2 text-sm text-ink-2">

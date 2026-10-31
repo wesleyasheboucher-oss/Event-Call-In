@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Loader2, Users } from "lucide-react";
 import { previewList } from "@/app/actions/events";
+import { fetchTags } from "@/app/actions/tags";
+import { TAG_STYLE, type TagWithCount } from "@/lib/tag-colors";
 import { fmt } from "@/lib/time";
 import { cx, Select } from "@/components/ui";
 import type { CallListFilter } from "./types";
@@ -33,6 +35,11 @@ export function CallListBuilder({
 }) {
   const [preview, setPreview] = useState<{ matched: number; added: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [tags, setTags] = useState<TagWithCount[]>([]);
+
+  useEffect(() => {
+    fetchTags().then(setTags);
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -116,6 +123,39 @@ export function CallListBuilder({
           />
           Leave out anyone who no-showed before
         </label>
+      )}
+
+      {value.mode !== "none" && tags.length > 0 && (
+        <div>
+          <div className="mb-2 text-sm text-ink">
+            Only people tagged <span className="text-ink-3">(any of these, optional)</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {tags.map((t) => {
+              const on = value.tagIds?.includes(t.id) ?? false;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      ...value,
+                      tagIds: on ? (value.tagIds ?? []).filter((id) => id !== t.id) : [...(value.tagIds ?? []), t.id],
+                    })
+                  }
+                  className={cx(
+                    "inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium ring-1 ring-inset transition-all sm:h-8",
+                    on ? cx(TAG_STYLE[t.color].chip, "ring-2") : "bg-surface text-ink-2 ring-border hover:ring-border-strong",
+                  )}
+                >
+                  <span className={cx("size-2 rounded-full", TAG_STYLE[t.color].dot)} />
+                  {t.name}
+                  <span className="text-[11px] opacity-60 tabular-nums">{t.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       <div className="flex items-center gap-3 rounded-2xl bg-surface-2 px-4 py-3">

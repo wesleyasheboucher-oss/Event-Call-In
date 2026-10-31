@@ -5,6 +5,9 @@ export type User = {
   name: string;
   email: string;
   role: Role;
+  title: string;
+  /** 1–7; null for people added before divisions existed */
+  division: number | null;
   active: number;
   created_at: string;
 };

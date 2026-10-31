@@ -7,7 +7,7 @@ import { ChevronRight, Plus, Power, UserCog } from "lucide-react";
 import { Page, PageHeader } from "@/components/page";
 import { Drawer } from "@/components/drawer";
 import { Avatar, Button, Chip, cx, Field, Input } from "@/components/ui";
-import { ROLE_LABEL, ROLES, type Role } from "@/lib/status";
+import { DIVISIONS, ROLE_LABEL, ROLES, type Role } from "@/lib/status";
 import { fmt } from "@/lib/time";
 import type { User } from "@/lib/types";
 import { saveUser, setUserActive } from "@/app/actions/users";
@@ -20,15 +20,35 @@ const ROLE_CHIP: Record<Role, string> = {
 
 const ROLE_HELP: Record<Role, string> = {
   admin: "Everything: contacts, imports, events, reports, and the team.",
-  caller: "Works call lists and logs RSVPs and notes.",
+  caller: "Works call lists and logs registration statuses and notes.",
   signin: "Checks people in on event day and adds walk-ins.",
 };
 
 type Activity = { user_id: number; calls: number; checkins: number };
 
+/** "Div 3" badge; one tint for every division keeps it calm and readable. */
+export function DivisionBadge({ division, className }: { division: number | null; className?: string }) {
+  if (division == null) return null;
+  return (
+    <span
+      className={cx(
+        "inline-flex h-6 shrink-0 items-center rounded-md bg-surface-2 px-2 text-[11px] font-semibold text-ink-2 ring-1 ring-border tabular-nums ring-inset",
+        className,
+      )}
+      title={`Division ${division}`}
+    >
+      Div {division}
+    </span>
+  );
+}
+
 export function TeamScreen({ users, meId, activity }: { users: User[]; meId: number; activity: Activity[] }) {
   const [editing, setEditing] = useState<User | "new" | null>(null);
+  const [division, setDivision] = useState<number | "all">("all");
   const act = new Map(activity.map((a) => [a.user_id, a]));
+  const counts = new Map<number, number>();
+  for (const u of users) if (u.division != null) counts.set(u.division, (counts.get(u.division) ?? 0) + 1);
+  const shown = division === "all" ? users : users.filter((u) => u.division === division);
 
   return (
     <Page>
@@ -41,10 +61,40 @@ export function TeamScreen({ users, meId, activity }: { users: User[]; meId: num
           </Button>
         }
       />
+      <div className="-mx-4 mb-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
+        {(["all", ...DIVISIONS] as const).map((d) => {
+          const on = division === d;
+          const n = d === "all" ? users.length : (counts.get(d) ?? 0);
+          return (
+            <button
+              key={d}
+              onClick={() => setDivision(d)}
+              className={cx(
+                "relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-colors md:h-8",
+                on ? "text-white" : "text-ink-2 ring-1 ring-border ring-inset hover:text-ink",
+                n === 0 && !on && "opacity-50",
+              )}
+            >
+              {on && (
+                <motion.span
+                  layoutId="division-pill"
+                  className="absolute inset-0 rounded-full bg-ink"
+                  transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                />
+              )}
+              <span className="relative">{d === "all" ? "Everyone" : `Division ${d}`}</span>
+              <span className={cx("relative text-[11px] tabular-nums", on ? "text-white/70" : "text-ink-3")}>{n}</span>
+            </button>
+          );
+        })}
+      </div>
       <div className="overflow-hidden rounded-2xl bg-surface ring-1 ring-border">
+        {shown.length === 0 && (
+          <p className="px-6 py-12 text-center text-sm text-ink-2">No one in Division {division} yet.</p>
+        )}
         <ul>
           <AnimatePresence initial={false}>
-            {users.map((u, i) => {
+            {shown.map((u, i) => {
               const a = act.get(u.id);
               return (
                 <motion.li
@@ -67,7 +117,16 @@ export function TeamScreen({ users, meId, activity }: { users: User[]; meId: num
                         <span className="truncate font-medium">{u.name}</span>
                         {u.id === meId && <span className="text-xs text-ink-3">(you)</span>}
                       </div>
-                      <div className="truncate text-sm text-ink-2">{u.email}</div>
+                      <div className="truncate text-sm text-ink-2">
+                        {u.title ? (
+                          <>
+                            <span className="text-ink">{u.title}</span>
+                            <span className="hidden sm:inline"> · {u.email}</span>
+                          </>
+                        ) : (
+                          u.email
+                        )}
+                      </div>
                     </div>
                     <div className="hidden text-right text-xs text-ink-3 md:block">
                       {a && (a.calls > 0 || a.checkins > 0) ? (
@@ -80,7 +139,8 @@ export function TeamScreen({ users, meId, activity }: { users: User[]; meId: num
                         "No activity yet"
                       )}
                     </div>
-                    <Chip className={ROLE_CHIP[u.role]}>{ROLE_LABEL[u.role]}</Chip>
+                    <DivisionBadge division={u.division} />
+                    <Chip className={cx(ROLE_CHIP[u.role], "hidden sm:inline-flex")}>{ROLE_LABEL[u.role]}</Chip>
                     {!u.active && <Chip className="bg-stone-100 text-stone-500 ring-stone-200">Inactive</Chip>}
                     <ChevronRight className="size-4 text-ink-3" />
                   </button>
@@ -101,6 +161,8 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
     name: existing?.name ?? "",
     email: existing?.email ?? "",
     role: (existing?.role ?? "caller") as Role,
+    title: existing?.title ?? "",
+    division: existing?.division ?? null,
     password: "",
   });
   const [error, setError] = useState<string | null>(null);
@@ -168,9 +230,49 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
         <Field label="Name" required>
           <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus />
         </Field>
-        <Field label="Email" required>
+        <Field label="Email" required hint={existing ? undefined : "This is what they'll sign in with."}>
           <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </Field>
+        <Field label="Position title" required>
+          <Input
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            placeholder="e.g. Outreach Coordinator"
+            maxLength={80}
+          />
+        </Field>
+        <div>
+          <span className="mb-1.5 flex items-baseline gap-1 text-[13px] font-medium text-ink-2">
+            Division <span className="text-rose-500">*</span>
+          </span>
+          <div role="radiogroup" aria-label="Division" className="grid grid-cols-7 gap-1.5">
+            {DIVISIONS.map((d) => {
+              const on = form.division === d;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => setForm({ ...form, division: d })}
+                  className={cx(
+                    "relative flex h-11 items-center justify-center rounded-xl text-[15px] font-semibold tabular-nums ring-1 transition-colors ring-inset",
+                    on ? "text-white ring-accent" : "text-ink-2 ring-border hover:bg-surface-2 hover:text-ink",
+                  )}
+                >
+                  {on && (
+                    <motion.span
+                      layoutId="division-pick"
+                      className="absolute inset-0 rounded-xl bg-accent"
+                      transition={{ type: "spring", stiffness: 520, damping: 36 }}
+                    />
+                  )}
+                  <span className="relative">{d}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <div>
           <span className="mb-1.5 block text-[13px] font-medium text-ink-2">Role</span>
           <div className="space-y-2">

@@ -201,7 +201,7 @@ export function SignInScreen({ event, initialRows }: { event: SignInEvent; initi
       { header: "Last name", value: (r) => r.last_name },
       { header: "Phone", value: (r) => formatPhone(r.phone) },
       { header: "Email", value: (r) => r.email },
-      { header: "RSVP", value: (r) => r.rsvp },
+      { header: "Status", value: (r) => r.rsvp },
       { header: "Attendance", value: (r) => r.attendance },
       { header: "Walk-in", value: (r) => (r.walk_in ? "yes" : "") },
       { header: "Guest of", value: (r) => r.guest_of_name },
@@ -267,7 +267,7 @@ export function SignInScreen({ event, initialRows }: { event: SignInEvent; initi
       </AnimatePresence>
 
       {/* Toolbar */}
-      <div className="sticky top-[97px] z-20 -mx-4 mt-6 bg-bg/85 px-4 pt-2 pb-3 backdrop-blur sm:-mx-8 sm:px-8 lg:top-0">
+      <div className="sticky top-14 z-20 -mx-4 mt-6 bg-bg/85 px-4 pt-2 pb-3 backdrop-blur sm:-mx-8 sm:px-8 md:top-0">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-ink-3" />

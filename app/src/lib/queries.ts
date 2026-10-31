@@ -32,7 +32,9 @@ export function parseEvent(row: RawEvent): EventRecord {
 /* ---------------------------------- Users --------------------------------- */
 
 export async function listUsers(): Promise<User[]> {
-  return all<User>("SELECT id, name, email, role, active, created_at FROM users ORDER BY active DESC, name");
+  return all<User>(
+    "SELECT id, name, email, role, title, division, active, created_at FROM users ORDER BY active DESC, division NULLS LAST, lower(name)",
+  );
 }
 
 /* --------------------------------- Events --------------------------------- */
@@ -203,6 +205,7 @@ export async function getGuestOf(
 /* --------------------------------- Contacts ------------------------------- */
 
 export type ContactListRow = Contact & {
+  tag_ids: number[];
   events_count: number;
   attended_count: number;
   no_show_count: number;
@@ -215,7 +218,8 @@ export async function listContacts(): Promise<ContactListRow[]> {
             COUNT(r.id) AS events_count,
             COUNT(r.id) FILTER (WHERE r.attendance = 'attended') AS attended_count,
             COUNT(r.id) FILTER (WHERE r.attendance = 'no_show') AS no_show_count,
-            MAX(e.start_at) AS last_event_at
+            MAX(e.start_at) AS last_event_at,
+            ARRAY(SELECT ct.tag_id FROM contact_tags ct WHERE ct.contact_id = c.id ORDER BY ct.tag_id) AS tag_ids
        FROM contacts c
        LEFT JOIN registrations r ON r.contact_id = c.id
        LEFT JOIN events e ON e.id = r.event_id
