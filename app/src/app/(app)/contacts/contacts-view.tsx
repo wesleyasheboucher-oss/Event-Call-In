@@ -17,16 +17,18 @@ import { Page, PageHeader } from "@/components/page";
 import { Modal } from "@/components/drawer";
 import { TagChip, TagSelector } from "@/components/tags";
 import { ContactDivisionBadge, ContactDivisionMini } from "@/components/division";
-import { Avatar, Button, Card, cx, EmptyState } from "@/components/ui";
+import { Avatar, Button, Card, cx, EmptyState, Select } from "@/components/ui";
 import { ContactDrawer } from "./contact-drawer";
 import { AddContactDrawer } from "./add-contact-drawer";
 import { ManageTagsDrawer } from "./manage-tags-drawer";
 
 type SortKey = "name" | "events" | "attended" | "no_shows" | "last_event" | "added";
-type FilterKey = "div_4" | "div_6" | "import" | "walk_in" | "manual" | "guest" | "no_shows" | "never_attended" | "no_phone" | "no_email";
+type FilterKey = "active" | "inactive" | "div_4" | "div_6" | "import" | "walk_in" | "manual" | "guest" | "no_shows" | "never_attended" | "no_phone" | "no_email";
 
 // Within "division" and "source", picking several means any of them; "flag" filters all apply.
-const FILTERS: { key: FilterKey; label: string; test: (c: ContactListRow) => boolean; group: "division" | "source" | "flag" }[] = [
+const FILTERS: { key: FilterKey; label: string; test: (c: ContactListRow) => boolean; group: "active" | "division" | "source" | "flag" }[] = [
+  { key: "active", label: "Active", test: (c) => c.active === 1, group: "active" },
+  { key: "inactive", label: "Inactive", test: (c) => c.active === 0, group: "active" },
   { key: "div_4", label: "Div 4", test: (c) => c.division === 4, group: "division" },
   { key: "div_6", label: "Div 6", test: (c) => c.division === 6, group: "division" },
   { key: "import", label: "Imported", test: (c) => c.source === "import", group: "source" },
@@ -141,6 +143,13 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
   const q = useDeferredValue(query);
   const [filters, setFilters] = useState<Set<FilterKey>>(new Set());
   const [tagFilter, setTagFilter] = useState<Set<number>>(new Set());
+  const [profile, setProfile] = useState({ training: "", processing: "", fsm: "" });
+  // Distinct values present in the data, for the level / FSM dropdowns.
+  const profileOptions = useMemo(() => {
+    const uniq = (k: "training_level" | "processing_level" | "fsm_name") =>
+      [...new Set(contacts.map((c) => c[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    return { training: uniq("training_level"), processing: uniq("processing_level"), fsm: uniq("fsm_name") };
+  }, [contacts]);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   const [limit, setLimit] = useState(PAGE);
   const [adding, setAdding] = useState(false);
@@ -173,10 +182,15 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
     const sourceFilters = FILTERS.filter((f) => f.group === "source" && filters.has(f.key));
     const flagFilters = FILTERS.filter((f) => f.group === "flag" && filters.has(f.key));
     const divisionFilters = FILTERS.filter((f) => f.group === "division" && filters.has(f.key));
+    const activeFilters = FILTERS.filter((f) => f.group === "active" && filters.has(f.key));
     const rows = people.filter((c) => {
       if (sourceFilters.length && !sourceFilters.some((f) => f.test(c))) return false;
       if (!flagFilters.every((f) => f.test(c))) return false;
       if (divisionFilters.length && !divisionFilters.some((f) => f.test(c))) return false;
+      if (activeFilters.length && !activeFilters.some((f) => f.test(c))) return false;
+      if (profile.training && c.training_level !== profile.training) return false;
+      if (profile.processing && c.processing_level !== profile.processing) return false;
+      if (profile.fsm && c.fsm_name !== profile.fsm) return false;
       if (tagFilter.size && !c.tag_ids.some((id) => tagFilter.has(id))) return false;
       if (!text) return true;
       const name = `${c.first_name} ${c.last_name}`.toLowerCase();
@@ -184,7 +198,7 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
         name.includes(text) ||
         `${c.last_name} ${c.first_name}`.toLowerCase().includes(text) ||
         c.email.includes(text) ||
-        (digits.length >= 3 && c.phone.includes(digits))
+        (digits.length >= 3 && (c.phone.includes(digits) || c.alt_phone.includes(digits)))
       );
     });
     const { key, dir } = sort;
@@ -197,10 +211,10 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
       added: (a, b) => a.created_at.localeCompare(b.created_at),
     };
     return rows.sort((a, b) => by[key](a, b) * dir || by.name(a, b));
-  }, [people, q, filters, tagFilter, sort]);
+  }, [people, q, filters, tagFilter, sort, profile]);
 
   const visible = filtered.slice(0, limit);
-  const filtersActive = filters.size > 0 || tagFilter.size > 0;
+  const filtersActive = filters.size > 0 || tagFilter.size > 0 || !!(profile.training || profile.processing || profile.fsm);
   const allFilteredSelected = filtered.length > 0 && filtered.every((c) => selected.has(c.id));
   const someSelected = selected.size > 0;
 
@@ -273,6 +287,11 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
       { header: "State", value: (c) => c.state },
       { header: "ZIP", value: (c) => c.zip },
       { header: "Division", value: (c) => c.division },
+      { header: "Active", value: (c) => (c.active ? "Yes" : "No") },
+      { header: "Alt phone", value: (c) => formatPhone(c.alt_phone) },
+      { header: "Training level", value: (c) => c.training_level },
+      { header: "Processing level", value: (c) => c.processing_level },
+      { header: "FSM", value: (c) => c.fsm_name },
       { header: "Tags", value: (c) => c.tag_ids.map((id) => tagsById.get(id)?.name).filter(Boolean).join(", ") },
       { header: "Notes", value: (c) => c.notes },
       { header: "Source", value: (c) => c.source },
@@ -362,6 +381,38 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
           ))}
         </div>
 
+        {(profileOptions.training.length > 0 || profileOptions.processing.length > 0 || profileOptions.fsm.length > 0) && (
+          <div className="grid gap-2 sm:grid-cols-3 md:max-w-3xl">
+            {(
+              [
+                ["training", "Training level", profileOptions.training],
+                ["processing", "Processing level", profileOptions.processing],
+                ["fsm", "FSM", profileOptions.fsm],
+              ] as const
+            ).map(([k, label, opts]) =>
+              opts.length ? (
+                <Select
+                  key={k}
+                  value={profile[k]}
+                  onChange={(e) => {
+                    setProfile((p) => ({ ...p, [k]: e.target.value }));
+                    setLimit(PAGE);
+                  }}
+                  aria-label={label}
+                  className={cx("h-10 min-w-0", profile[k] && "ring-2 ring-ink")}
+                >
+                  <option value="">{`Any ${label.toLowerCase()}`}</option>
+                  {opts.map((o) => (
+                    <option key={o} value={o}>
+                      {o}
+                    </option>
+                  ))}
+                </Select>
+              ) : null,
+            )}
+          </div>
+        )}
+
         <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
           <span className="flex shrink-0 items-center gap-1.5 text-[13px] text-ink-3">
             <TagIcon className="size-3.5" /> Tags
@@ -405,6 +456,7 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                   onClick={() => {
                     setFilters(new Set());
                     setTagFilter(new Set());
+                    setProfile({ training: "", processing: "", fsm: "" });
                   }}
                   className="ml-2 font-medium text-accent hover:underline"
                 >
@@ -453,6 +505,7 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                       "flex min-h-[72px] items-center gap-3 px-4 py-3 transition-colors active:bg-surface-2",
                       isSel && "bg-accent-soft/60",
                       selecting && "pl-1",
+                      c.active === 0 && "opacity-55",
                     )}
                   >
                     {selecting && <Checkbox checked={isSel} onChange={() => toggleSelected(c.id)} label={`Select ${name}`} />}
@@ -540,6 +593,7 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                         className={cx(
                           "cursor-pointer border-b border-border/70 transition-colors last:border-0 hover:bg-surface-2/70",
                           (openId === c.id || isSel) && "bg-accent-soft/50 hover:bg-accent-soft/70",
+                          c.active === 0 && "text-ink-3 [&_td]:opacity-60",
                         )}
                       >
                         <td className="py-3 pr-3 pl-3">

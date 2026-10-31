@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
-import { setContactDivision } from "@/app/actions/contacts";
+import { setContactActive, setContactDivision } from "@/app/actions/contacts";
 import { CONTACT_DIVISIONS } from "@/lib/status";
 import { cx } from "./ui";
 
@@ -152,5 +152,59 @@ export function ContactDivisionMini({
         );
       })}
     </span>
+  );
+}
+
+/** Active Yes / No switch for a contact (saves immediately). */
+export function ContactActiveToggle({
+  contactId,
+  value,
+  onChange,
+}: {
+  contactId: number;
+  value: boolean;
+  onChange: (active: boolean) => void;
+}) {
+  const pick = async (next: boolean) => {
+    if (next === value) return;
+    onChange(next);
+    try {
+      await setContactActive(contactId, next);
+    } catch {
+      onChange(!next);
+      toast.error("Couldn't save. Try again.");
+    }
+  };
+  return (
+    <div role="radiogroup" aria-label="Active" className="inline-flex items-center gap-2">
+      <span className="text-[13px] font-medium text-ink-2">Active</span>
+      <span className="inline-flex rounded-xl bg-surface-2 p-1 ring-1 ring-border ring-inset">
+        {[true, false].map((v) => {
+          const on = value === v;
+          return (
+            <button
+              key={String(v)}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => pick(v)}
+              className={cx(
+                "relative h-9 min-w-[52px] rounded-lg px-3 text-[13px] font-semibold transition-colors",
+                on ? (v ? "text-white" : "text-white") : "text-ink-2 hover:text-ink",
+              )}
+            >
+              {on && (
+                <motion.span
+                  layoutId={`active-toggle-${contactId}`}
+                  className={cx("absolute inset-0 rounded-lg shadow-sm", v ? "bg-emerald-600" : "bg-stone-500")}
+                  transition={{ type: "spring", stiffness: 520, damping: 36 }}
+                />
+              )}
+              <span className="relative">{v ? "Yes" : "No"}</span>
+            </button>
+          );
+        })}
+      </span>
+    </div>
   );
 }

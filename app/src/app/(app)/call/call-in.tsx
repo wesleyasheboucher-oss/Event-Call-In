@@ -4,7 +4,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, us
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { toast } from "sonner";
-import { AlertTriangle, Check, Download, FileSpreadsheet, FileText, ListFilter, MessageSquare, Phone, Search, Tag as TagIcon, UserPlus, Users, X } from "lucide-react";
+import { AlertTriangle, Check, Download, FileSpreadsheet, FileText, ListFilter, Phone, Search, Tag as TagIcon, UserPlus, Users, X } from "lucide-react";
 import type { CallInCell, CallInEvent, CallInRow } from "@/lib/call-in";
 import { RSVP, type RsvpStatus } from "@/lib/status";
 import { TAG_STYLE, type TagWithCount } from "@/lib/tag-colors";
@@ -61,6 +61,7 @@ export function CallIn({
   const [statusOpen, setStatusOpen] = useState(false);
   const [divisions, setDivisions] = useState<Set<number>>(new Set());
   const [contactsOnly, setContactsOnly] = useState(false);
+  const [activeOnly, setActiveOnly] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState<null | "xlsx" | "pdf">(null);
   const [tagFilter, setTagFilter] = useState<Set<number>>(new Set());
@@ -86,6 +87,7 @@ export function CallIn({
       if (divisions.size && (r.division == null || !divisions.has(r.division))) return false;
       // "Contacts only": leave out anyone who is someone's plus-one.
       if (contactsOnly && (r.source === "guest" || cells.some((c) => c.guest_of_name))) return false;
+      if (activeOnly && r.active === 0) return false;
       for (const e of selected) {
         const picks = statusFilters[e.id];
         if (picks?.length && !picks.includes(r.cells[e.id]?.status ?? "no_data")) return false;
@@ -96,7 +98,7 @@ export function CallIn({
         `${r.first_name} ${r.last_name}`.toLowerCase().includes(text) ||
         `${r.last_name} ${r.first_name}`.toLowerCase().includes(text) ||
         r.email.includes(text) ||
-        (digits.length >= 3 && r.phone.includes(digits))
+        (digits.length >= 3 && (r.phone.includes(digits) || r.alt_phone.includes(digits)))
       );
     });
     const byName = (a: CallInRow, b: CallInRow) =>
@@ -105,7 +107,7 @@ export function CallIn({
     if (sort === "name") list.sort(byName);
     else list.sort((a, b) => (sort === "least_recent" ? 1 : -1) * lastCalled(a).localeCompare(lastCalled(b)) || byName(a, b));
     return list;
-  }, [rows, selected, scope, statusFilters, divisions, contactsOnly, tagFilter, q, sort]);
+  }, [rows, selected, scope, statusFilters, divisions, contactsOnly, activeOnly, tagFilter, q, sort]);
 
   // Per-event counts for the column headers / event chips.
   const counts = useMemo(() => {
@@ -226,6 +228,7 @@ export function CallIn({
   const filterSummary = [
     divisions.size ? [...divisions].sort().map((d) => `Div ${d}`).join(" or ") : "",
     contactsOnly ? "Contacts only" : "",
+    activeOnly ? "Active only" : "",
     ...activeStatusFilters.map((e) => `${e.name}: ${statusFilters[e.id].map(statusKeyLabel).join(", ")}`),
   ]
     .filter(Boolean)
@@ -451,6 +454,21 @@ export function CallIn({
           {contactsOnly && <Check className="size-3.5" strokeWidth={3} />}
           Contacts only
         </button>
+        <button
+          aria-pressed={activeOnly}
+          onClick={() => {
+            setActiveOnly((v) => !v);
+            setLimit(PAGE);
+          }}
+          className={cx(
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 transition-colors ring-inset md:h-8",
+            activeOnly ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink",
+          )}
+          title="Hide people marked inactive"
+        >
+          {activeOnly && <Check className="size-3.5" strokeWidth={3} />}
+          Active only
+        </button>
         {activeStatusFilters.map((e) => (
           <span
             key={e.id}
@@ -556,6 +574,7 @@ export function CallIn({
                           className={cx(
                             "group cursor-pointer border-b border-border/70 transition-colors last:border-0 hover:bg-surface-2/60",
                             openId === r.contact_id && "bg-accent-soft/50",
+                            r.active === 0 && "[&_td]:opacity-60",
                           )}
                         >
                           <td
@@ -609,7 +628,11 @@ export function CallIn({
                 {filtered.slice(0, limit).map((r) => {
                   const name = `${r.first_name} ${r.last_name}`;
                   return (
-                    <li key={r.contact_id} onClick={() => setOpenId(r.contact_id)} className="px-4 py-4 active:bg-surface-2">
+                    <li
+                      key={r.contact_id}
+                      onClick={() => setOpenId(r.contact_id)}
+                      className={cx("px-4 py-4 active:bg-surface-2", r.active === 0 && "opacity-60")}
+                    >
                       <div className="flex items-center gap-3">
                         <Avatar name={name} size="md" />
                         <div className="min-w-0 flex-1">
@@ -678,6 +701,9 @@ export function CallIn({
         onPatchCell={(eventId, p) => openRow && patchCell(openRow.contact_id, eventId, p)}
         onDivision={(division) => openRow && setDivision(openRow.contact_id, division)}
         onOpenContact={setOpenId}
+        onActive={(active) =>
+          openRow && setRows((rs) => rs.map((r) => (r.contact_id === openRow.contact_id ? { ...r, active } : r)))
+        }
         hasPrev={openIndex > 0}
         hasNext={openIndex >= 0 && openIndex < filtered.length - 1}
         onPrev={() => openIndex > 0 && setOpenId(filtered[openIndex - 1].contact_id)}
@@ -779,7 +805,6 @@ function StatusCell({ cell, onClick }: { cell: CallInCell | undefined; onClick: 
       />
       {s.label}
       {cell && cell.guest_count > 0 && <span className="text-[10px] opacity-70">+{cell.guest_count}</span>}
-      {cell && cell.note_count > 0 && <MessageSquare className="size-3 opacity-50" />}
     </button>
   );
 }

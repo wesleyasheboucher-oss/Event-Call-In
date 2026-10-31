@@ -15,7 +15,7 @@ import { Drawer } from "@/components/drawer";
 import { GuestsPanel } from "@/components/guests-panel";
 import { RsvpPicker } from "@/components/status";
 import { ContactTagsEditor } from "@/components/tags";
-import { ContactDivisionToggle } from "@/components/division";
+import { ContactActiveToggle, ContactDivisionToggle } from "@/components/division";
 import { GuestOfCard } from "@/components/guest-of-card";
 import { Button, cx, SectionTitle, Textarea } from "@/components/ui";
 import { AddressBlock, ContactHeader, HistoryList, NotesList, PanelSkeleton, QuickStats } from "@/components/contact-panel";
@@ -29,6 +29,7 @@ export function CallInDrawer({
   onStatus,
   onPatchCell,
   onDivision,
+  onActive,
   onOpenContact,
   hasPrev,
   hasNext,
@@ -41,6 +42,7 @@ export function CallInDrawer({
   onStatus: (eventId: number, s: RsvpStatus) => void;
   onPatchCell: (eventId: number, p: Partial<CallInCell>) => void;
   onDivision: (division: number | null) => void;
+  onActive: (active: number) => void;
   /** Jump to another person's drawer (e.g. a guest's host). */
   onOpenContact: (contactId: number) => void;
   hasPrev: boolean;
@@ -169,7 +171,10 @@ export function CallInDrawer({
               <div className="rounded-2xl bg-surface-2 px-5 py-4 text-sm text-ink-2">No phone on file. Try email instead.</div>
             )}
 
-            <ContactDivisionToggle contactId={row.contact_id} value={row.division} onChange={onDivision} />
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              <ContactDivisionToggle contactId={row.contact_id} value={row.division} onChange={onDivision} />
+              <ContactActiveToggle contactId={row.contact_id} value={row.active === 1} onChange={(a) => onActive(a ? 1 : 0)} />
+            </div>
 
             {detail ? (
               <ContactTagsEditor

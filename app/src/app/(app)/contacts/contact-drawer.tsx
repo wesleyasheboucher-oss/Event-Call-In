@@ -19,7 +19,7 @@ import {
 } from "@/components/contact-panel";
 import { Button, SectionTitle } from "@/components/ui";
 import { ContactTagsEditor } from "@/components/tags";
-import { ContactDivisionToggle } from "@/components/division";
+import { ContactActiveToggle, ContactDivisionToggle } from "@/components/division";
 import { GuestOfCard } from "@/components/guest-of-card";
 import { formatPhone } from "@/lib/phone";
 import { ContactFields, DuplicateWarning, useDuplicates, validateContact } from "./contact-form";
@@ -36,6 +36,11 @@ function toInput(d: ContactDetail): ContactInput {
     state: c.state,
     zip: c.zip,
     notes: c.notes,
+    alt_phone: formatPhone(c.alt_phone),
+    training_level: c.training_level,
+    processing_level: c.processing_level,
+    fsm_name: c.fsm_name,
+    active: c.active === 1,
   };
 }
 
@@ -77,7 +82,7 @@ export function ContactDrawer({
   }, [contactId]);
 
   const ready = detail && loadedId === contactId;
-  const errors = form ? validateContact(form, { guest: detail?.contact.source === "guest" }) : {};
+  const errors = form ? validateContact(form) : {};
   const dupes = useDuplicates(editing && form ? form.phone : "", editing && form ? form.email : "", contactId ?? undefined);
 
   function startEdit() {
@@ -175,14 +180,24 @@ export function ContactDrawer({
               >
                 <section>
                   <SectionTitle>Division</SectionTitle>
-                  <ContactDivisionToggle
-                    contactId={detail.contact.id}
-                    value={detail.contact.division}
-                    onChange={(division) => {
-                      setDetail((d) => (d ? { ...d, contact: { ...d.contact, division } } : d));
-                      router.refresh();
-                    }}
-                  />
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+                    <ContactDivisionToggle
+                      contactId={detail.contact.id}
+                      value={detail.contact.division}
+                      onChange={(division) => {
+                        setDetail((d) => (d ? { ...d, contact: { ...d.contact, division } } : d));
+                        router.refresh();
+                      }}
+                    />
+                    <ContactActiveToggle
+                      contactId={detail.contact.id}
+                      value={detail.contact.active === 1}
+                      onChange={(active) => {
+                        setDetail((d) => (d ? { ...d, contact: { ...d.contact, active: active ? 1 : 0 } } : d));
+                        router.refresh();
+                      }}
+                    />
+                  </div>
                 </section>
                 <section>
                   <SectionTitle>Tags</SectionTitle>

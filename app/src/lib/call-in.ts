@@ -26,6 +26,9 @@ export type CallInRow = {
   email: string;
   tag_ids: number[];
   division: number | null;
+  alt_phone: string;
+  /** 1 = active, 0 = inactive */
+  active: number;
   /** 'guest' = came in as someone's plus-one */
   source: "import" | "walk_in" | "manual" | "guest";
   attended_count: number;
@@ -111,6 +114,8 @@ export async function getCallInRows(eventIds: number[]): Promise<CallInRow[]> {
     tag_ids: c.tag_ids,
     division: c.division,
     source: c.source,
+    alt_phone: c.alt_phone,
+    active: c.active,
     attended_count: c.attended_count,
     no_show_count: c.no_show_count,
     cells: cellsByContact.get(c.id) ?? {},

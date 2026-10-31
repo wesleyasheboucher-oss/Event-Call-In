@@ -27,6 +27,16 @@ export function ContactHeader({ detail }: { detail: ContactDetail }) {
               <Phone className="size-3.5" /> {formatPhone(c.phone)}
             </a>
           )}
+          {c.alt_phone && (
+            <a href={telHref(c.alt_phone)} className="inline-flex items-center gap-1.5 hover:text-accent" title="Alt phone">
+              <Phone className="size-3.5" /> {formatPhone(c.alt_phone)} <span className="text-xs text-ink-3">alt</span>
+            </a>
+          )}
+          {c.active === 0 && (
+            <span className="rounded-md bg-stone-100 px-1.5 py-px text-[11px] font-semibold text-stone-600 ring-1 ring-stone-200">
+              Inactive
+            </span>
+          )}
           {c.email && (
             <a href={`mailto:${c.email}`} className="inline-flex min-w-0 items-center gap-1.5 hover:text-accent">
               <Mail className="size-3.5 shrink-0" /> <span className="truncate">{c.email}</span>
@@ -144,8 +154,23 @@ export function NotesList({ notes, showEvent }: { notes: NoteRow[]; showEvent?: 
 export function AddressBlock({ detail }: { detail: ContactDetail }) {
   const c = detail.contact;
   const line = [c.street, [c.city, c.state].filter(Boolean).join(", "), c.zip].filter(Boolean).join(" · ");
+  const profile = [
+    ["Training", c.training_level],
+    ["Processing", c.processing_level],
+    ["FSM", c.fsm_name],
+  ].filter(([, v]) => v);
   return (
     <div className="space-y-2 text-sm">
+      {profile.length > 0 && (
+        <dl className="mb-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-xl bg-surface-2/60 px-4 py-3">
+          {profile.map(([k, v]) => (
+            <div key={k} className="contents">
+              <dt className="text-xs text-ink-3">{k}</dt>
+              <dd className="text-[13px] font-medium text-ink">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       {line && (
         <div className="flex gap-2 text-ink-2">
           <MapPin className="mt-0.5 size-4 shrink-0 text-ink-3" /> {line}

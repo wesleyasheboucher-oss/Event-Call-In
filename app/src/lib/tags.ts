@@ -39,12 +39,16 @@ export async function findOrCreateTag(name: string, userId: number): Promise<Tag
   return { id, name: clean, color };
 }
 
+/** Tags many contacts at once, 200 per statement (one round trip each, not one per person). */
 export async function tagContacts(contactIds: number[], tagId: number, userId: number): Promise<number> {
   let added = 0;
-  for (const cid of contactIds) {
+  const ts = now();
+  for (let i = 0; i < contactIds.length; i += 200) {
+    const chunk = contactIds.slice(i, i + 200);
     const res = await run(
-      "INSERT INTO contact_tags (contact_id, tag_id, added_by, added_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
-      [cid, tagId, userId, now()],
+      `INSERT INTO contact_tags (contact_id, tag_id, added_by, added_at)
+       VALUES ${chunk.map(() => "(?, ?, ?, ?)").join(", ")} ON CONFLICT DO NOTHING`,
+      chunk.flatMap((cid) => [cid, tagId, userId, ts]),
     );
     added += res.changes;
   }

@@ -7,6 +7,7 @@ import { animate, AnimatePresence, motion } from "motion/react";
 import Papa from "papaparse";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Check,
@@ -16,15 +17,19 @@ import {
   FileSpreadsheet,
   RefreshCw,
   SkipForward,
+  Tag as TagIcon,
   UploadCloud,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { importContacts, matchExisting, type ExistingMatch, type ImportResult } from "@/app/actions/contacts";
+import { fetchTags } from "@/app/actions/tags";
 import {
   applyMapping,
   dropBlankRows,
+  findHeaderRow,
   guessMapping,
+  sameName,
   IMPORT_FIELDS,
   rowError,
   type ColumnMapping,
@@ -46,7 +51,8 @@ type Analyzed = MappedRow & {
   dupOfRow?: number;
 };
 
-const CHUNK = 500;
+// Rows per request; small enough to finish well inside a serverless time limit.
+const CHUNK = 200;
 
 function cellToString(v: unknown): string {
   if (v == null) return "";
@@ -80,6 +86,8 @@ export function ImportWizard() {
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
+  const [headerRow, setHeaderRow] = useState(0); // index of the header row in the file
+  const [tagName, setTagName] = useState("");
   const [mapping, setMapping] = useState<ColumnMapping | null>(null);
   const [analyzed, setAnalyzed] = useState<Analyzed[] | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -94,14 +102,18 @@ export function ImportWizard() {
 
   async function onFile(file: File) {
     try {
-      const data = dropBlankRows(await parseFile(file));
-      if (data.length < 2) {
+      const data = await parseFile(file);
+      // Lists often start with a title or a note; the header is the first row naming known columns.
+      const h = findHeaderRow(data);
+      const head = data[h] ?? [];
+      const body = data.slice(h + 1);
+      if (dropBlankRows(body).length === 0) {
         toast.error("That file needs a header row and at least one contact.");
         return;
       }
-      const [head, ...body] = data;
       setFileName(file.name);
-      setHeaders(head.map((h, i) => h.trim() || `Column ${i + 1}`));
+      setHeaderRow(h);
+      setHeaders(head.map((c, i) => c.trim() || `Column ${i + 1}`));
       setRows(body);
       setMapping(guessMapping(head));
       setAnalyzed(null);
@@ -116,14 +128,23 @@ export function ImportWizard() {
     if (!mapping) return;
     setAnalyzing(true);
     try {
-      const mapped = applyMapping(rows, mapping);
-      const phones = new Map<string, number>();
+      const mapped = applyMapping(rows, mapping, headerRow + 2);
+      // Repeats within the file: same email, or same phone *and* same name. Households and
+      // offices often share a phone, and those are different people.
+      const phones = new Map<string, MappedRow[]>();
       const emails = new Map<string, number>();
+      const noContact: MappedRow[] = []; // rows with no phone/email: matched by name only
       const out: Analyzed[] = mapped.map((r) => {
         const err = rowError(r);
         if (err) return { ...r, status: "error", reason: err };
-        const prior = (r.phone && phones.get(r.phone)) || (r.email && emails.get(r.email));
-        if (r.phone && !phones.has(r.phone)) phones.set(r.phone, r.row);
+        const byPhone = [r.phone, r.alt_phone]
+          .filter(Boolean)
+          .flatMap((p) => phones.get(p) ?? [])
+          .find((p) => sameName(p, r));
+        const byNameOnly = !r.phone && !r.alt_phone && !r.email ? noContact.find((p) => sameName(p, r)) : undefined;
+        if (!r.phone && !r.alt_phone && !r.email) noContact.push(r);
+        const prior = (r.email && emails.get(r.email)) || byPhone?.row || byNameOnly?.row;
+        for (const p of [r.phone, r.alt_phone]) if (p) phones.set(p, [...(phones.get(p) ?? []), r]);
         if (r.email && !emails.has(r.email)) emails.set(r.email, r.row);
         if (prior) return { ...r, status: "in_file", dupOfRow: prior, reason: `Same person as row ${prior}` };
         return { ...r, status: "new" };
@@ -131,7 +152,9 @@ export function ImportWizard() {
       const candidates = out.filter((r) => r.status === "new");
       for (let i = 0; i < candidates.length; i += 2000) {
         const slice = candidates.slice(i, i + 2000);
-        const matches = await matchExisting(slice.map((r) => ({ phone: r.phone, email: r.email })));
+        const matches = await matchExisting(
+          slice.map((r) => ({ phone: r.phone, email: r.email, alt_phone: r.alt_phone, first_name: r.first_name, last_name: r.last_name })),
+        );
         slice.forEach((r, j) => {
           if (matches[j]) {
             r.status = "duplicate";
@@ -157,18 +180,24 @@ export function ImportWizard() {
         first_name: r.first_name,
         last_name: r.last_name,
         phone: r.phone,
+        alt_phone: r.alt_phone,
         email: r.email,
         street: r.street,
         city: r.city,
         state: r.state,
         zip: r.zip,
         notes: r.notes,
+        training_level: r.training_level,
+        processing_level: r.processing_level,
+        fsm_name: r.fsm_name,
+        active: r.active,
+        warnings: [],
       }));
     const total: ImportResult = { added: 0, updated: 0, skipped: 0, errors: [] };
     setProgress(0);
     try {
       for (let i = 0; i < toSend.length; i += CHUNK) {
-        const res = await importContacts(toSend.slice(i, i + CHUNK), mode);
+        const res = await importContacts(toSend.slice(i, i + CHUNK), mode, tagName);
         total.added += res.added;
         total.updated += res.updated;
         total.skipped += res.skipped;
@@ -189,7 +218,7 @@ export function ImportWizard() {
 
   function downloadErrors() {
     if (!result) return;
-    const byRow = new Map(rows.map((r, i) => [i + 2, r]));
+    const byRow = new Map(rows.map((r, i) => [i + headerRow + 2, r]));
     const list = [...result.errors].sort((a, b) => a.row - b.row);
     downloadCsv(`import-errors-${fileName.replace(/\.[^.]+$/, "")}`, list, [
       { header: "Row", value: (e) => e.row },
@@ -202,6 +231,8 @@ export function ImportWizard() {
     setFileName("");
     setHeaders([]);
     setRows([]);
+    setHeaderRow(0);
+    setTagName("");
     setMapping(null);
     setAnalyzed(null);
     setResult(null);
@@ -258,6 +289,8 @@ export function ImportWizard() {
                 onBack={() => go(1)}
                 onImport={runImport}
                 progress={progress}
+                tagName={tagName}
+                onTagName={setTagName}
               />
             )}
             {step === 3 && result && <DoneStep result={result} onErrors={downloadErrors} onAgain={reset} />}
@@ -359,7 +392,7 @@ function UploadStep({ onFile }: { onFile: (f: File) => void }) {
           <UploadCloud className="size-6" />
         </motion.span>
         <span className="text-base font-semibold">{over ? "Drop to upload" : "Drag a file here, or click to browse"}</span>
-        <span className="mt-1.5 text-sm text-ink-2">CSV or Excel (.xlsx). The first row should be column headers.</span>
+        <span className="mt-1.5 text-sm text-ink-2">CSV or Excel (.xlsx). Column headers are found automatically, even under a title.</span>
       </motion.button>
       <input
         ref={input}
@@ -546,6 +579,8 @@ function PreviewStep({
   onBack,
   onImport,
   progress,
+  tagName,
+  onTagName,
 }: {
   analyzed: Analyzed[];
   mode: "skip" | "update";
@@ -553,7 +588,20 @@ function PreviewStep({
   onBack: () => void;
   onImport: () => void;
   progress: number | null;
+  tagName: string;
+  onTagName: (v: string) => void;
 }) {
+  const [tagOptions, setTagOptions] = useState<string[]>([]);
+  useEffect(() => {
+    fetchTags().then((t) => setTagOptions(t.map((x) => x.name)));
+  }, []);
+  // Importable rows with something worth a look (unreadable phone, no contact info…)
+  const warned = analyzed.filter((r) => r.status !== "error" && r.status !== "in_file" && r.warnings.length);
+  const warningCounts = new Map<string, number>();
+  for (const r of warned) for (const w of r.warnings) {
+    const k = w.replace(/\s*\(.*\)/, "");
+    warningCounts.set(k, (warningCounts.get(k) ?? 0) + 1);
+  }
   const groups = {
     new: analyzed.filter((r) => r.status === "new"),
     duplicate: analyzed.filter((r) => r.status === "duplicate" || r.status === "in_file"),
@@ -628,6 +676,24 @@ function PreviewStep({
         </div>
       )}
 
+      {warningCounts.size > 0 && (
+        <div className="flex gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+          <div>
+            <div className="font-medium">
+              {warned.length} {warned.length === 1 ? "row imports" : "rows import"} with something to check later
+            </div>
+            <ul className="mt-1 space-y-0.5 text-[13px] text-amber-800">
+              {[...warningCounts].map(([w, n]) => (
+                <li key={w}>
+                  {w}: <span className="font-semibold tabular-nums">{n}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
       <Card className="overflow-hidden">
         <div className="flex gap-1 border-b border-border px-3 pt-3">
           {tiles.map((t) => (
@@ -652,7 +718,7 @@ function PreviewStep({
                   <th className="px-3 py-2.5 font-medium">Name</th>
                   <th className="px-3 py-2.5 font-medium">Phone</th>
                   <th className="px-3 py-2.5 font-medium">Email</th>
-                  {tab !== "new" && <th className="px-3 py-2.5 pr-6 font-medium">{tab === "error" ? "Problem" : "Matches"}</th>}
+                  <th className="px-3 py-2.5 pr-6 font-medium">{tab === "error" ? "Problem" : tab === "duplicate" ? "Matches" : "Check"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -663,6 +729,7 @@ function PreviewStep({
                     <td className="px-3 py-2.5 text-ink-2 tabular-nums">{formatPhone(r.phone) || "—"}</td>
                     <td className="max-w-[220px] truncate px-3 py-2.5 text-ink-2">{r.email || "—"}</td>
                     {tab === "error" && <td className="px-3 py-2.5 pr-6 text-rose-600">{r.reason}</td>}
+                    {tab === "new" && <td className="px-3 py-2.5 pr-6 text-xs text-amber-700">{r.warnings.join(" · ")}</td>}
                     {tab === "duplicate" && (
                       <td className="px-3 py-2.5 pr-6">
                         {r.status === "in_file" ? (
@@ -688,6 +755,30 @@ function PreviewStep({
       {groups.duplicate.length > existingDupes && (
         <p className="text-[13px] text-ink-3">Rows repeated within the file are always skipped; the first occurrence is imported.</p>
       )}
+
+      <div className="rounded-2xl bg-surface p-4 ring-1 ring-border">
+        <label className="block">
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <TagIcon className="size-4 text-ink-3" /> Tag everyone in this import <span className="font-normal text-ink-3">(optional)</span>
+          </span>
+          <span className="mt-0.5 block text-[13px] text-ink-2">
+            Added and updated people get this tag, so you can find this list later. Pick one or type a new name.
+          </span>
+          <input
+            list="import-tag-options"
+            value={tagName}
+            onChange={(e) => onTagName(e.target.value)}
+            placeholder="e.g. Fully Paid – Oct 2026"
+            maxLength={40}
+            className="mt-2.5 h-10 w-full max-w-sm rounded-xl bg-surface px-3.5 text-sm ring-1 ring-border ring-inset placeholder:text-ink-3 focus:ring-2 focus:ring-accent focus:outline-none"
+          />
+          <datalist id="import-tag-options">
+            {tagOptions.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
+        </label>
+      </div>
 
       <div className="flex items-center justify-between gap-4">
         <Button variant="ghost" icon={<ArrowLeft className="size-4" />} onClick={onBack} disabled={progress != null}>

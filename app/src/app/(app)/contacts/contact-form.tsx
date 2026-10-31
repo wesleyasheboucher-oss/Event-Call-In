@@ -5,7 +5,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { AlertTriangle, ArrowRight } from "lucide-react";
 import { checkDuplicates, type ContactInput, type DuplicateMatch } from "@/app/actions/contacts";
 import { formatPhone, isValidEmail, normalizePhone } from "@/lib/phone";
-import { cx, Field, Input, Textarea } from "@/components/ui";
+import { cx, Field, Input, Textarea, Toggle } from "@/components/ui";
+import { fetchProfileOptions } from "@/app/actions/contacts";
 
 export const EMPTY_CONTACT: ContactInput = {
   first_name: "",
@@ -17,16 +18,22 @@ export const EMPTY_CONTACT: ContactInput = {
   state: "",
   zip: "",
   notes: "",
+  alt_phone: "",
+  training_level: "",
+  processing_level: "",
+  fsm_name: "",
+  active: true,
 };
 
-/** Guests (someone's plus-one) may have just a name; everyone else needs a phone or email. */
-export function validateContact(c: ContactInput, opts: { guest?: boolean } = {}): Record<string, string> {
+/** A name is required; phone and email are optional. */
+export function validateContact(c: ContactInput): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!c.first_name.trim()) errors.first_name = "Required";
   if (!c.last_name.trim()) errors.last_name = "Required";
   const phone = normalizePhone(c.phone);
-  if (!opts.guest && !phone && !c.email.trim()) errors.phone = "Add a phone or an email";
   if (phone && phone.length < 7) errors.phone = "Phone number looks too short";
+  const alt = normalizePhone(c.alt_phone);
+  if (alt && alt.length < 7) errors.alt_phone = "Phone number looks too short";
   if (c.email.trim() && !isValidEmail(c.email.trim())) errors.email = "That doesn't look like an email";
   return errors;
 }
@@ -86,7 +93,7 @@ export function ContactFields({
             err("phone") ??
             (normalizePhone(value.phone).length === 10 && value.phone !== formatPhone(normalizePhone(value.phone))
               ? `Saves as ${formatPhone(normalizePhone(value.phone))}`
-              : "Phone or email required")
+              : undefined)
           }
         >
           <Input
@@ -101,10 +108,42 @@ export function ContactFields({
             placeholder="(813) 555-1234"
           />
         </Field>
-        <Field label="Email" hint={err("email")}>
+        <Field label="Alt phone" hint={err("alt_phone")}>
+          <Input
+            type="tel"
+            value={value.alt_phone}
+            onChange={set("alt_phone")}
+            onBlur={() => {
+              const p = normalizePhone(value.alt_phone);
+              if (p.length === 10) onChange({ ...value, alt_phone: formatPhone(p) });
+            }}
+            className={cx(bad("alt_phone"))}
+            placeholder="Second number"
+          />
+        </Field>
+        <Field label="Email" hint={err("email")} className="sm:col-span-2">
           <Input type="email" value={value.email} onChange={set("email")} className={cx(bad("email"))} placeholder="name@example.com" />
         </Field>
       </div>
+      <div className="flex items-center justify-between rounded-xl bg-surface-2/60 px-4 py-3 ring-1 ring-border">
+        <span>
+          <span className="block text-sm font-medium">Active</span>
+          <span className="block text-xs text-ink-3">Inactive people stay in Contacts but can be filtered out.</span>
+        </span>
+        <Toggle checked={value.active} onChange={(active) => onChange({ ...value, active })} label={value.active ? "Yes" : "No"} />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Training level">
+          <Input value={value.training_level} onChange={set("training_level")} list="opt-training" placeholder="Pick or type" />
+        </Field>
+        <Field label="Processing level">
+          <Input value={value.processing_level} onChange={set("processing_level")} list="opt-processing" placeholder="Pick or type" />
+        </Field>
+        <Field label="FSM" className="sm:col-span-2">
+          <Input value={value.fsm_name} onChange={set("fsm_name")} list="opt-fsm" placeholder="Pick or type" />
+        </Field>
+      </div>
+      <ProfileOptions />
       <Field label="Street address">
         <Input value={value.street} onChange={set("street")} />
       </Field>
@@ -123,6 +162,32 @@ export function ContactFields({
         <Textarea value={value.notes} onChange={set("notes")} placeholder="Anything callers should know about this person" />
       </Field>
     </div>
+  );
+}
+
+/** Suggestions for the level / FSM fields: values already used on other contacts. */
+function ProfileOptions() {
+  const [opts, setOpts] = useState<{ training: string[]; processing: string[]; fsm: string[] } | null>(null);
+  useEffect(() => {
+    fetchProfileOptions().then(setOpts);
+  }, []);
+  if (!opts) return null;
+  return (
+    <>
+      {(
+        [
+          ["opt-training", opts.training],
+          ["opt-processing", opts.processing],
+          ["opt-fsm", opts.fsm],
+        ] as const
+      ).map(([id, values]) => (
+        <datalist key={id} id={id}>
+          {values.map((v) => (
+            <option key={v} value={v} />
+          ))}
+        </datalist>
+      ))}
+    </>
   );
 }
 

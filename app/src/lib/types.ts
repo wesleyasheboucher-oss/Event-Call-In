@@ -29,6 +29,13 @@ export type Contact = {
   notes: string;
   source: "import" | "walk_in" | "manual" | "guest";
   division: number | null;
+  /** digits only; '' when none */
+  alt_phone: string;
+  training_level: string;
+  processing_level: string;
+  fsm_name: string;
+  /** 1 = active, 0 = inactive */
+  active: number;
   created_at: string;
   updated_at: string;
 };
