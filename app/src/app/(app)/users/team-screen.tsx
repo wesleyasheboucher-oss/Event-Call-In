@@ -3,15 +3,15 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { ChevronRight, Copy, KeyRound, Plus, Power, Sparkles, UserCog } from "lucide-react";
+import { Check, ChevronRight, Copy, KeyRound, Lock, Plus, Sparkles, Unlock, UserCog, UserPlus } from "lucide-react";
 import { Page, PageHeader } from "@/components/page";
 import { Drawer } from "@/components/drawer";
 import { Avatar, Button, Chip, cx, Field, Input } from "@/components/ui";
 import { DIVISIONS, ROLE_LABEL, ROLES, type Role } from "@/lib/status";
-import { fmt } from "@/lib/time";
+import { ago, fmt } from "@/lib/time";
 import { formatPhone, normalizePhone } from "@/lib/phone";
 import type { User } from "@/lib/types";
-import { saveUser, setUserActive } from "@/app/actions/users";
+import { approveUser, declineUser, saveUser, setUserActive } from "@/app/actions/users";
 
 /** Easy to read aloud or type: no 0/O, 1/l/I. */
 function temporaryPassword(): string {
@@ -55,9 +55,18 @@ export function TeamScreen({ users, meId, activity }: { users: User[]; meId: num
   const [editing, setEditing] = useState<User | "new" | null>(null);
   const [division, setDivision] = useState<number | "all">("all");
   const act = new Map(activity.map((a) => [a.user_id, a]));
+  const requests = users.filter((u) => u.pending === 1);
+  const members = users.filter((u) => u.pending !== 1);
   const counts = new Map<number, number>();
-  for (const u of users) if (u.division != null) counts.set(u.division, (counts.get(u.division) ?? 0) + 1);
-  const shown = division === "all" ? users : users.filter((u) => u.division === division);
+  for (const u of members) if (u.division != null) counts.set(u.division, (counts.get(u.division) ?? 0) + 1);
+  const shown = division === "all" ? members : members.filter((u) => u.division === division);
+
+  const decline = async (u: User) => {
+    if (!window.confirm(`Decline ${u.name}'s request? They can request access again later.`)) return;
+    const res = await declineUser(u.id);
+    if (!res.ok) return toast.error(res.error);
+    toast.success(`Declined ${u.name}'s request`);
+  };
 
   return (
     <Page>
@@ -70,10 +79,54 @@ export function TeamScreen({ users, meId, activity }: { users: User[]; meId: num
           </Button>
         }
       />
+      <AnimatePresence initial={false}>
+        {requests.length > 0 && (
+          <motion.section
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="-m-px mb-7 overflow-hidden p-px"
+          >
+            <div className="rounded-2xl bg-accent-soft/50 p-4 ring-1 ring-indigo-200 sm:p-5">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-accent-ink">
+                <UserPlus className="size-4" /> {requests.length} {requests.length === 1 ? "person is" : "people are"} waiting for approval
+              </h2>
+              <ul className="space-y-2">
+                {requests.map((u) => (
+                  <motion.li
+                    key={u.id}
+                    layout
+                    exit={{ opacity: 0, x: 16 }}
+                    className="flex flex-wrap items-center gap-3 rounded-xl bg-surface px-4 py-3 ring-1 ring-border"
+                  >
+                    <Avatar name={u.name} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{u.name}</div>
+                      <div className="truncate text-sm text-ink-2">
+                        {[u.email, u.phone ? formatPhone(u.phone) : ""].filter(Boolean).join(" · ")}
+                        <span className="text-ink-3"> · requested {ago(u.created_at)}</span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <Button size="sm" variant="ghost" className="text-rose-600 hover:bg-rose-50" onClick={() => decline(u)}>
+                        Decline
+                      </Button>
+                      <Button size="sm" variant="primary" onClick={() => setEditing(u)}>
+                        Review & approve
+                      </Button>
+                    </div>
+                  </motion.li>
+                ))}
+              </ul>
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
+
       <div className="-mx-4 mb-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
         {(["all", ...DIVISIONS] as const).map((d) => {
           const on = division === d;
-          const n = d === "all" ? users.length : (counts.get(d) ?? 0);
+          const n = d === "all" ? members.length : (counts.get(d) ?? 0);
           return (
             <button
               key={d}
@@ -158,7 +211,11 @@ export function TeamScreen({ users, meId, activity }: { users: User[]; meId: num
                     )}
                     <DivisionBadge division={u.division} />
                     <Chip className={cx(ROLE_CHIP[u.role], "hidden sm:inline-flex")}>{ROLE_LABEL[u.role]}</Chip>
-                    {!u.active && <Chip className="bg-stone-100 text-stone-500 ring-stone-200">Inactive</Chip>}
+                    {!u.active && (
+                      <Chip className="bg-stone-100 text-stone-600 ring-stone-200">
+                        <Lock className="size-3" /> Locked
+                      </Chip>
+                    )}
                     <ChevronRight className="size-4 text-ink-3" />
                   </button>
                 </motion.li>
@@ -174,6 +231,7 @@ export function TeamScreen({ users, meId, activity }: { users: User[]; meId: num
 
 function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: number; onClose: () => void }) {
   const existing = user && user !== "new" ? user : null;
+  const isRequest = existing?.pending === 1;
   const [form, setForm] = useState({
     name: existing?.name ?? "",
     email: existing?.email ?? "",
@@ -198,13 +256,36 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
     onClose();
   };
 
+  const approve = async () => {
+    if (!existing) return;
+    setBusy("save");
+    setError(null);
+    // Save any edits to their details, then let them in.
+    const saved = await saveUser({ id: existing.id, ...form, password: undefined });
+    const res = saved.ok ? await approveUser(existing.id, { role: form.role, title: form.title, division: form.division }) : saved;
+    setBusy(null);
+    if (!res.ok) return setError(res.error);
+    toast.success(`${form.name} approved. They can sign in now.`);
+    onClose();
+  };
+
+  const decline = async () => {
+    if (!existing) return;
+    setBusy("active");
+    const res = await declineUser(existing.id);
+    setBusy(null);
+    if (!res.ok) return setError(res.error);
+    toast.success(`Declined ${existing.name}'s request`);
+    onClose();
+  };
+
   const toggleActive = async () => {
     if (!existing) return;
     setBusy("active");
     const res = await setUserActive(existing.id, !existing.active);
     setBusy(null);
     if (!res.ok) return setError(res.error);
-    toast.success(existing.active ? `${existing.name} deactivated` : `${existing.name} reactivated`);
+    toast.success(existing.active ? `${existing.name} is locked and signed out` : `${existing.name} is unlocked`);
     onClose();
   };
 
@@ -213,23 +294,39 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
       open={user != null}
       onClose={onClose}
       width="sm"
-      title={existing ? existing.name : "Add a team member"}
+      title={existing ? (isRequest ? `Approve ${existing.name}` : existing.name) : "Add a team member"}
       subtitle={
-        existing
-          ? `Joined ${fmt(existing.created_at, "America/New_York", "MMM d, yyyy")}`
-          : "They'll sign in with their email or phone, and this password."
+        isRequest
+          ? `Requested access ${ago(existing!.created_at)}. Set their role, title, and division, then approve.`
+          : existing
+            ? `Joined ${fmt(existing.created_at, "America/New_York", "MMM d, yyyy")}`
+            : "They'll sign in with their email or phone, and this password."
       }
       footer={
+        isRequest ? (
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" loading={busy === "active"} className="text-rose-600 hover:bg-rose-50 hover:text-rose-700" onClick={decline}>
+              Decline
+            </Button>
+            <div className="flex-1" />
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={busy === "save"} icon={<Check className="size-4" />} onClick={approve}>
+              Approve
+            </Button>
+          </div>
+        ) : (
         <div className="flex items-center gap-2">
           {existing && existing.id !== meId && (
             <Button
               variant="ghost"
               loading={busy === "active"}
-              icon={<Power className="size-4" />}
+              icon={existing.active ? <Lock className="size-4" /> : <Unlock className="size-4" />}
               onClick={toggleActive}
               className={existing.active ? "text-rose-600 hover:bg-rose-50 hover:text-rose-700" : ""}
             >
-              {existing.active ? "Deactivate" : "Reactivate"}
+              {existing.active ? "Lock account" : "Unlock"}
             </Button>
           )}
           <div className="flex-1" />
@@ -240,6 +337,7 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
             {existing ? "Save" : "Add person"}
           </Button>
         </div>
+        )
       }
     >
       <form
@@ -252,7 +350,7 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
         <Field label="Name" required>
           <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoFocus />
         </Field>
-        <Field label="Email" required hint={existing ? undefined : "This is what they'll sign in with."}>
+        <Field label="Email" hint={existing ? undefined : "Email, phone, or both. They sign in with either."}>
           <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </Field>
         <Field label="Phone" hint="Optional. They can sign in with this or their email.">
@@ -340,6 +438,9 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
             })}
           </div>
         </div>
+        {/* Sign-up requests already chose their own password */}
+        {!isRequest && (
+          <>
         <Field
           label={existing ? (existing.id === meId ? "Change your password" : "Reset password") : "Temporary password"}
           required={!existing}
@@ -405,6 +506,8 @@ function UserDrawer({ user, meId, onClose }: { user: User | "new" | null; meId: 
             </motion.div>
           )}
         </AnimatePresence>
+          </>
+        )}
         <button type="submit" className="hidden" />
         <AnimatePresence>
           {error && (

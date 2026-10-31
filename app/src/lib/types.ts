@@ -3,13 +3,16 @@ import type { AttendanceStatus, EventStatus, Role, RsvpStatus } from "./status";
 export type User = {
   id: number;
   name: string;
-  email: string;
+  /** null for people who signed up with only a phone */
+  email: string | null;
   role: Role;
   title: string;
   /** digits only; '' when not set. Can be used to sign in. */
   phone: string;
   /** 1 = an admin set their password; they must choose their own at next sign-in */
   must_change_password: number;
+  /** 1 = signed up and waiting for an admin to approve */
+  pending: number;
   /** 1–7; null for people added before divisions existed */
   division: number | null;
   active: number;

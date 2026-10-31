@@ -39,7 +39,7 @@ function isActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
 }
 
-export function Sidebar({ user }: { user: SessionUser }) {
+export function Sidebar({ user, pendingRequests = 0 }: { user: SessionUser; pendingRequests?: number }) {
   const pathname = usePathname();
   const items = NAV.filter((n) => n.roles.includes(user.role));
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -95,6 +95,14 @@ export function Sidebar({ user }: { user: SessionUser }) {
                 )}
                 <item.icon className={cx("relative size-[18px]", active ? "text-accent" : "text-ink-3")} />
                 <span className="sb-only relative whitespace-nowrap">{item.label}</span>
+                {item.href === "/users" && pendingRequests > 0 && (
+                  <span
+                    className="relative ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-white tabular-nums max-lg:absolute max-lg:top-1 max-lg:right-1 max-lg:ml-0"
+                    title={`${pendingRequests} waiting for approval`}
+                  >
+                    {pendingRequests}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -137,7 +145,14 @@ export function Sidebar({ user }: { user: SessionUser }) {
           <Avatar name={user.name} size="sm" />
         </button>
       </header>
-      <MobileTabBar items={items} pathname={pathname} user={user} moreOpen={sheetOpen} setMoreOpen={setSheetOpen} />
+      <MobileTabBar
+        items={items}
+        pathname={pathname}
+        user={user}
+        moreOpen={sheetOpen}
+        setMoreOpen={setSheetOpen}
+        pendingRequests={pendingRequests}
+      />
     </>
   );
 }
@@ -159,12 +174,14 @@ function MobileTabBar({
   items,
   pathname,
   user,
+  pendingRequests,
   moreOpen,
   setMoreOpen,
 }: {
   items: typeof NAV;
   pathname: string;
   user: SessionUser;
+  pendingRequests: number;
   moreOpen: boolean;
   setMoreOpen: (fn: (o: boolean) => boolean) => void;
 }) {
@@ -204,7 +221,10 @@ function MobileTabBar({
               {overflowActive && !moreOpen && (
                 <motion.span layoutId="tab-active" className="absolute top-0 h-0.5 w-10 rounded-full bg-accent" />
               )}
-              <MoreHorizontal className="size-[22px]" />
+              <span className="relative">
+                <MoreHorizontal className="size-[22px]" />
+                {pendingRequests > 0 && <span className="absolute -top-0.5 -right-1 size-2.5 rounded-full bg-accent ring-2 ring-surface" />}
+              </span>
               More
             </button>
           )}
@@ -253,6 +273,11 @@ function MobileTabBar({
                   >
                     <item.icon className={cx("size-5", active ? "text-accent" : "text-ink-3")} />
                     {item.label}
+                    {item.href === "/users" && pendingRequests > 0 && (
+                      <span className="ml-auto rounded-full bg-accent px-2 text-xs font-semibold text-white tabular-nums">
+                        {pendingRequests}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

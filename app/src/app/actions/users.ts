@@ -33,7 +33,8 @@ export async function saveUser(input: UserInput): Promise<UserResult> {
   const email = normalizeEmail(input.email);
   const password = input.password ?? "";
   if (!name) return { ok: false, error: "Name is required." };
-  if (!isValidEmail(email)) return { ok: false, error: "Enter a valid email." };
+  if (email && !isValidEmail(email)) return { ok: false, error: "Enter a valid email." };
+  if (!email && !normalizePhone(input.phone)) return { ok: false, error: "Add an email or a phone. They sign in with either." };
   if (!ROLES.includes(input.role)) return { ok: false, error: "Pick a role." };
   const title = input.title.trim().slice(0, 80);
   if (!title) return { ok: false, error: "Add their position title." };
@@ -41,7 +42,9 @@ export async function saveUser(input: UserInput): Promise<UserResult> {
   if (!(DIVISIONS as readonly number[]).includes(division)) return { ok: false, error: "Pick a division (1–7)." };
   if ((!input.id || password) && password.length < 8) return { ok: false, error: "Password must be at least 8 characters." };
 
-  const clash = await get<{ id: number }>("SELECT id FROM users WHERE email = ? AND id <> ?", [email, input.id ?? -1]);
+  const clash = email
+    ? await get<{ id: number }>("SELECT id FROM users WHERE email = ? AND id <> ?", [email, input.id ?? -1])
+    : undefined;
   if (clash) return { ok: false, error: "Someone on the team already uses that email." };
   const phone = normalizePhone(input.phone);
   if (phone && phone.length < 10) return { ok: false, error: "Enter a full phone number, with area code." };
@@ -59,7 +62,7 @@ export async function saveUser(input: UserInput): Promise<UserResult> {
     }
     await run("UPDATE users SET name = ?, email = ?, phone = ?, role = ?, title = ?, division = ? WHERE id = ?", [
       name,
-      email,
+      email || null,
       phone,
       input.role,
       title,
@@ -81,25 +84,46 @@ export async function saveUser(input: UserInput): Promise<UserResult> {
     // New people start with a temporary password and choose their own at first sign-in.
     await run(
       "INSERT INTO users (name, email, phone, password_hash, role, title, division, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, 1)",
-      [
-      name,
-      email,
-      phone,
-      hashPassword(password),
-        input.role,
-        title,
-        division,
-      ],
+      [name, email || null, phone, hashPassword(password), input.role, title, division],
     );
   }
   refresh();
   return { ok: true };
 }
 
+/** Approve a sign-up request: set what they do on the team and let them sign in. */
+export async function approveUser(
+  id: number,
+  input: { role: Role; title: string; division: number | null },
+): Promise<UserResult> {
+  await actionUser(["admin"]);
+  if (!ROLES.includes(input.role)) return { ok: false, error: "Pick a role." };
+  const title = input.title.trim().slice(0, 80);
+  if (!title) return { ok: false, error: "Add their position title." };
+  const division = Number(input.division);
+  if (!(DIVISIONS as readonly number[]).includes(division)) return { ok: false, error: "Pick a division (1–7)." };
+  const res = await run(
+    "UPDATE users SET role = ?, title = ?, division = ?, active = 1, pending = 0 WHERE id = ? AND pending = 1",
+    [input.role, title, division, id],
+  );
+  if (!res.changes) return { ok: false, error: "That request was already handled." };
+  refresh();
+  return { ok: true };
+}
+
+/** Decline a sign-up request (removes it; they can request again). */
+export async function declineUser(id: number): Promise<UserResult> {
+  await actionUser(["admin"]);
+  await run("DELETE FROM users WHERE id = ? AND pending = 1", [id]);
+  refresh();
+  return { ok: true };
+}
+
+/** Lock (active = false) or unlock an account. Locking signs them out everywhere. */
 export async function setUserActive(id: number, active: boolean): Promise<UserResult> {
   const me = await actionUser(["admin"]);
   if (!active) {
-    if (id === me.id) return { ok: false, error: "You can't deactivate yourself." };
+    if (id === me.id) return { ok: false, error: "You can't lock your own account." };
     const u = await get<{ role: Role }>("SELECT role FROM users WHERE id = ?", [id]);
     if (u?.role === "admin" && (await activeAdminCount(id)) === 0) return { ok: false, error: "There must be at least one active admin." };
   }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LoginForm } from "./login-form";
 import { PhoneCall } from "lucide-react";
 
@@ -16,6 +17,12 @@ export default function LoginPage() {
           <p className="mt-1 text-sm text-ink-2">Sign in to work your call lists and events.</p>
         </div>
         <LoginForm defaultEmail={demo ? "admin@example.com" : ""} />
+        <p className="mt-6 text-center text-sm text-ink-2">
+          Don&apos;t have an account?{" "}
+          <Link href="/signup" className="font-medium text-accent hover:underline">
+            Request access
+          </Link>
+        </p>
         {demo && (
           <p className="mt-6 text-center text-xs text-ink-3">
             Demo accounts: admin@example.com or (813) 555-0100 · caller@example.com · signin@example.com — password{" "}

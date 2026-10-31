@@ -13,7 +13,7 @@ const SESSION_DAYS = 14;
 export type SessionUser = {
   id: number;
   name: string;
-  email: string;
+  email: string | null;
   role: Role;
   title: string;
   division: number | null;

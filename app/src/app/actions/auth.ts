@@ -1,11 +1,10 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { get } from "@/lib/db";
+import { get, now, run } from "@/lib/db";
 import { createSession, destroySession, endOtherSessions, readSessionUser } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/password";
-import { run } from "@/lib/db";
-import { normalizePhone } from "@/lib/phone";
+import { isValidEmail, normalizeEmail, normalizePhone } from "@/lib/phone";
 
 export async function login(_prev: { error?: string; identifier?: string } | undefined, form: FormData) {
   // One field: an email if it has an @, otherwise a phone number in any format.
@@ -14,19 +13,63 @@ export async function login(_prev: { error?: string; identifier?: string } | und
   const byEmail = identifier.includes("@");
   const key = byEmail ? identifier.toLowerCase() : normalizePhone(identifier);
   const user = key
-    ? await get<{ id: number; password_hash: string; active: number }>(
-        `SELECT id, password_hash, active FROM users WHERE ${byEmail ? "email" : "phone"} = ?`,
+    ? await get<{ id: number; password_hash: string; active: number; pending: number }>(
+        `SELECT id, password_hash, active, pending FROM users WHERE ${byEmail ? "email" : "phone"} = ?`,
         [key],
       )
     : undefined;
-  if (!user || !user.active || !verifyPassword(password, user.password_hash)) {
-    return {
-      error: `That ${byEmail ? "email" : "phone number"} and password don't match an active account.`,
-      identifier,
-    };
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    return { error: `That ${byEmail ? "email" : "phone number"} and password don't match an account.`, identifier };
   }
+  // Only after the password checks out, so these don't reveal which accounts exist.
+  if (user.pending) {
+    return { error: "Your account is waiting for approval. You'll be able to sign in once an admin approves it.", identifier };
+  }
+  if (!user.active) return { error: "This account is locked. Ask an admin to unlock it.", identifier };
   await createSession(user.id);
   redirect("/");
+}
+
+export type SignupState = { error?: string; done?: boolean; values?: Record<string, string> } | undefined;
+
+/**
+ * Request an account. It's created as pending (can't sign in) until an admin approves it,
+ * and starts as a Caller; the admin sets the role, title, and division when approving.
+ */
+export async function signup(_prev: SignupState, form: FormData): Promise<SignupState> {
+  const field = (k: string) => String(form.get(k) ?? "").trim();
+  const name = field("name").replace(/\s+/g, " ").slice(0, 80);
+  const emailRaw = field("email");
+  const phoneRaw = field("phone");
+  const password = String(form.get("password") ?? "");
+  const confirm = String(form.get("confirm") ?? "");
+  const values = { name, email: emailRaw, phone: phoneRaw };
+
+  // Hidden field real people never fill in; bots usually do.
+  if (field("website")) return { done: true };
+
+  const email = normalizeEmail(emailRaw);
+  const phone = normalizePhone(phoneRaw);
+  if (!name || !name.includes(" ")) return { error: "Enter your first and last name.", values };
+  if (!email && !phone) return { error: "Add your email, your phone, or both. You'll sign in with either.", values };
+  if (email && !isValidEmail(email)) return { error: "That email doesn't look right.", values };
+  if (phone && phone.length < 10) return { error: "Enter your full phone number, with area code.", values };
+  if (password.length < 8) return { error: "Choose a password with at least 8 characters.", values };
+  if (password !== confirm) return { error: "The two passwords don't match.", values };
+
+  if (email && (await get("SELECT id FROM users WHERE email = ?", [email]))) {
+    return { error: "There's already an account with that email. Try signing in instead.", values };
+  }
+  if (phone && (await get("SELECT id FROM users WHERE phone = ?", [phone]))) {
+    return { error: "There's already an account with that phone number. Try signing in instead.", values };
+  }
+
+  await run(
+    `INSERT INTO users (name, email, phone, password_hash, role, title, active, pending, must_change_password, created_at)
+     VALUES (?, ?, ?, ?, 'caller', '', 0, 1, 0, ?)`,
+    [name, email || null, phone, hashPassword(password), now()],
+  );
+  return { done: true };
 }
 
 export type ChangePasswordState = { error?: string; done?: boolean } | undefined;

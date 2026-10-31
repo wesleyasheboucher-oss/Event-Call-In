@@ -33,7 +33,7 @@ export function parseEvent(row: RawEvent): EventRecord {
 
 export async function listUsers(): Promise<User[]> {
   return all<User>(
-    "SELECT id, name, email, phone, role, title, division, must_change_password, active, created_at FROM users ORDER BY active DESC, division NULLS LAST, lower(name)",
+    "SELECT id, name, email, phone, role, title, division, must_change_password, pending, active, created_at FROM users ORDER BY pending DESC, active DESC, division NULLS LAST, lower(name)",
   );
 }
 

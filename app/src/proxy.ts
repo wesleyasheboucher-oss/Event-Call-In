@@ -4,8 +4,8 @@ import { NextResponse, type NextRequest } from "next/server";
 // The real session check happens server-side in requireUser().
 export function proxy(request: NextRequest) {
   const hasSession = request.cookies.has("callin_session");
-  const isLogin = request.nextUrl.pathname === "/login";
-  if (!hasSession && !isLogin) {
+  const isPublic = request.nextUrl.pathname === "/login" || request.nextUrl.pathname === "/signup";
+  if (!hasSession && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   return NextResponse.next();
