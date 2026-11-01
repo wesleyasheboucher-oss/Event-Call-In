@@ -6,10 +6,10 @@ import { motion } from "motion/react";
 import { useListLayout } from "@/components/use-layout";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { toast } from "sonner";
-import { AlertTriangle, Check, Download, FileSpreadsheet, FileText, ListFilter, Phone, Search, Tag as TagIcon, UserPlus, Users, X } from "lucide-react";
+import { AlertTriangle, Check, Download, FileSpreadsheet, FileText, ListFilter, Phone, Search, UserPlus, Users, X } from "lucide-react";
 import type { CallInCell, CallInEvent, CallInRow } from "@/lib/call-in";
 import { RSVP, type RsvpStatus } from "@/lib/status";
-import { TAG_STYLE, type TagWithCount } from "@/lib/tag-colors";
+import type { TagWithCount } from "@/lib/tag-colors";
 import { formatPhone, normalizePhone, telHref } from "@/lib/phone";
 import { ago, daysUntil, fmt, relativeDays } from "@/lib/time";
 import { setRsvp } from "@/app/actions/registrations";
@@ -18,12 +18,11 @@ import { EventCover } from "@/components/event-cover";
 import { ContactDivisionMini } from "@/components/division";
 import { Avatar, cx, EmptyState, Select } from "@/components/ui";
 import { StatusMenu, type MenuTarget } from "./status-menu";
-import { StatusFilterDrawer, statusKeyLabel, type StatusFilters } from "./status-filter-drawer";
+import { CallInFilterSheet, countFilters, NO_FILTERS, statusKeyLabel, type CallInFilters } from "./call-in-filters";
 import { exportExcel, exportPdf } from "./call-in-export";
 import { CallInDrawer } from "./call-in-drawer";
 
 const PAGE = 100;
-type Scope = "listed" | "everyone";
 type Sort = "name" | "least_recent" | "most_recent";
 
 const shortName = (name: string) => (name.length > 22 ? `${name.slice(0, 20)}…` : name);
@@ -61,15 +60,13 @@ export function CallIn({
   const selected = useMemo(() => events.filter((e) => selectedIds.includes(e.id)), [events, selectedIds]);
   const [query, setQuery] = useState("");
   const q = useDeferredValue(query);
-  const [scope, setScope] = useState<Scope>(everyone ? "everyone" : "listed");
-  const [statusFilters, setStatusFilters] = useState<StatusFilters>({});
-  const [statusOpen, setStatusOpen] = useState(false);
-  const [divisions, setDivisions] = useState<Set<number>>(new Set());
-  const [contactsOnly, setContactsOnly] = useState(false);
-  const [activeOnly, setActiveOnly] = useState(false);
+  const [filters, setFilters] = useState<CallInFilters>(() => ({ ...NO_FILTERS, scope: everyone ? "everyone" : "listed" }));
+  const { scope, divisions, contactsOnly, activeOnly, status: statusFilters, tags: tagFilter } = filters;
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Latest filters for back-to-back taps that land before a re-render.
+  const filtersRef = useRef(filters);
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState<null | "xlsx" | "pdf">(null);
-  const [tagFilter, setTagFilter] = useState<Set<number>>(new Set());
   const [sort, setSort] = useState<Sort>("name");
   const [limit, setLimit] = useState(PAGE);
   const [openId, setOpenId] = useState<number | null>(null);
@@ -240,6 +237,38 @@ export function CallIn({
     .filter(Boolean)
     .join(" · ");
 
+  const filterCount = countFilters(filters, selected);
+  // "Everyone" needs rows the server didn't send at first, so it goes through the URL.
+  const changeFilters = (update: (prev: CallInFilters) => CallInFilters) => {
+    const prev = filtersRef.current;
+    const next = update(prev);
+    filtersRef.current = next;
+    setFilters(next);
+    setLimit(PAGE);
+    if (next.scope !== prev.scope) navigate(selectedIds, next.scope === "everyone");
+  };
+  const tagName = new Map(tags.map((t) => [t.id, t.name]));
+  const activeChips: { key: string; label: string; clear: (f: CallInFilters) => Partial<CallInFilters> }[] = [
+    ...(scope === "everyone" ? [{ key: "scope", label: "Everyone", clear: () => ({ scope: "listed" as const }) }] : []),
+    ...[...divisions].sort().map((d) => ({
+      key: `div${d}`,
+      label: `Div ${d}`,
+      clear: (f: CallInFilters) => ({ divisions: new Set([...f.divisions].filter((x) => x !== d)) }),
+    })),
+    ...(contactsOnly ? [{ key: "contacts", label: "Contacts only", clear: () => ({ contactsOnly: false }) }] : []),
+    ...(activeOnly ? [{ key: "active", label: "Active only", clear: () => ({ activeOnly: false }) }] : []),
+    ...activeStatusFilters.map((e) => ({
+      key: `st${e.id}`,
+      label: `${shortName(e.name)}: ${statusFilters[e.id].map(statusKeyLabel).join(", ")}`,
+      clear: (f: CallInFilters) => ({ status: { ...f.status, [e.id]: [] } }),
+    })),
+    ...[...tagFilter].map((id) => ({
+      key: `tag${id}`,
+      label: tagName.get(id) ?? "Tag",
+      clear: (f: CallInFilters) => ({ tags: new Set([...f.tags].filter((x) => x !== id)) }),
+    })),
+  ];
+
   const runExport = async (kind: "xlsx" | "pdf") => {
     setExportOpen(false);
     setExporting(kind);
@@ -271,6 +300,9 @@ export function CallIn({
             const on = selectedIds.includes(e.id);
             const days = daysUntil(e.start_at, e.time_zone);
             const pct = e.list_size ? Math.round(((e.list_size - e.not_contacted) / e.list_size) * 100) : 0;
+            // Live counts for selected events (they change as you call); the server's otherwise.
+            const live = counts[e.id];
+            const confirms = live ? live.confirmed + live.reconfirmed : e.confirms;
             return (
               <button
                 key={e.id}
@@ -289,11 +321,17 @@ export function CallIn({
                   <span className="block truncate text-xs text-ink-2">
                     {relativeDays(days)} · {fmt(e.start_at, e.time_zone, "MMM d")}
                   </span>
+                  <span className="mt-0.5 block text-xs font-semibold text-emerald-700 tabular-nums">
+                    {confirms.toLocaleString()} {confirms === 1 ? "confirm" : "confirms"}
+                    {e.capacity ? <span className="font-normal text-ink-3"> / {e.capacity.toLocaleString()}</span> : null}
+                  </span>
                   <span className="mt-1.5 flex items-center gap-2">
                     <span className="h-1 flex-1 overflow-hidden rounded-full bg-stone-100">
                       <span className="block h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
                     </span>
-                    <span className="text-[10px] text-ink-3 tabular-nums">{pct}%</span>
+                    <span className="text-[10px] text-ink-3 tabular-nums" title="Share of the list contacted">
+                      {pct}% called
+                    </span>
                   </span>
                 </span>
                 <span
@@ -333,39 +371,16 @@ export function CallIn({
             </button>
           )}
         </div>
-        <div className="flex basis-full rounded-xl bg-surface-2 p-1 ring-1 ring-border ring-inset sm:basis-auto">
-          {(["listed", "everyone"] as Scope[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => {
-                setScope(s);
-                setLimit(PAGE);
-                if ((s === "everyone") !== everyone) navigate(selectedIds, s === "everyone");
-              }}
-              className={cx(
-                "relative h-9 flex-1 rounded-lg px-3 text-[13px] font-medium transition-colors sm:h-8 sm:flex-none",
-                scope === s ? "text-ink" : "text-ink-2 hover:text-ink",
-              )}
-            >
-              {scope === s && (
-                <motion.span layoutId="scope" className="absolute inset-0 rounded-lg bg-surface shadow-sm ring-1 ring-border" />
-              )}
-              <span className="relative">{s === "listed" ? "On these lists" : "Everyone"}</span>
-            </button>
-          ))}
-        </div>
         <button
-          onClick={() => setStatusOpen(true)}
+          onClick={() => setFiltersOpen(true)}
           className={cx(
             "flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl px-3.5 text-sm font-medium ring-1 transition-colors ring-inset sm:flex-none",
-            activeStatusFilters.length ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink",
+            filterCount ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink",
           )}
         >
-          <ListFilter className="size-4" />
-          Status
-          {activeStatusFilters.length > 0 && (
-            <span className="rounded-full bg-white/20 px-1.5 text-[11px] tabular-nums">{activeStatusFilters.length}</span>
-          )}
+          <ListFilter className="size-4 shrink-0" />
+          Filters
+          {filterCount > 0 && <span className="rounded-full bg-white/20 px-1.5 text-[11px] tabular-nums">{filterCount}</span>}
         </button>
         <Select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="h-10 w-auto min-w-0 flex-1 sm:flex-none" aria-label="Sort">
           <option value="name">Sort: Name</option>
@@ -415,115 +430,28 @@ export function CallIn({
         </div>
       </div>
 
-      {/* Division / contacts-only toggles, then active status filters */}
-      <div className="-mx-4 mb-3 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
-        {[4, 6].map((d) => {
-          const on = divisions.has(d);
-          return (
-            <button
-              key={d}
-              aria-pressed={on}
-              onClick={() => {
-                setDivisions((prev) => {
-                  const next = new Set(prev);
-                  if (on) next.delete(d);
-                  else next.add(d);
-                  return next;
-                });
-                setLimit(PAGE);
-              }}
-              className={cx(
-                "inline-flex h-9 shrink-0 items-center rounded-full px-3.5 text-[13px] font-semibold ring-1 transition-colors ring-inset md:h-8",
-                on
-                  ? d === 4
-                    ? "bg-teal-600 text-white ring-teal-600"
-                    : "bg-violet-600 text-white ring-violet-600"
-                  : "bg-surface text-ink-2 ring-border hover:text-ink",
-              )}
+      {activeChips.length > 0 && (
+        <div className="-mx-4 mb-3 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
+          {activeChips.map((c) => (
+            <span
+              key={c.key}
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-accent-soft pr-1 pl-3 text-[13px] text-accent-ink"
             >
-              Div {d}
-            </button>
-          );
-        })}
-        <span className="mx-1 h-5 w-px shrink-0 bg-border" />
-        <button
-          aria-pressed={contactsOnly}
-          onClick={() => {
-            setContactsOnly((v) => !v);
-            setLimit(PAGE);
-          }}
-          className={cx(
-            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 transition-colors ring-inset md:h-8",
-            contactsOnly ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink",
-          )}
-          title="Leave out people who are someone's guest"
-        >
-          {contactsOnly && <Check className="size-3.5" strokeWidth={3} />}
-          Contacts only
-        </button>
-        <button
-          aria-pressed={activeOnly}
-          onClick={() => {
-            setActiveOnly((v) => !v);
-            setLimit(PAGE);
-          }}
-          className={cx(
-            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium ring-1 transition-colors ring-inset md:h-8",
-            activeOnly ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink",
-          )}
-          title="Hide people marked inactive"
-        >
-          {activeOnly && <Check className="size-3.5" strokeWidth={3} />}
-          Active only
-        </button>
-        {activeStatusFilters.map((e) => (
-          <span
-            key={e.id}
-            className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full bg-accent-soft pr-1 pl-3 text-[13px] text-accent-ink md:h-8"
-          >
-            <button onClick={() => setStatusOpen(true)} className="max-w-[260px] truncate">
-              <span className="font-semibold">{e.name.length > 18 ? `${e.name.slice(0, 16)}…` : e.name}:</span>{" "}
-              {statusFilters[e.id].map(statusKeyLabel).join(", ")}
-            </button>
-            <button
-              onClick={() => setStatusFilters((f) => ({ ...f, [e.id]: [] }))}
-              className="flex size-6 items-center justify-center rounded-full hover:bg-indigo-100"
-              aria-label={`Clear ${e.name} status filter`}
-            >
-              <X className="size-3.5" />
-            </button>
-          </span>
-        ))}
-      </div>
-
-      {tags.length > 0 && (
-        <div className="-mx-4 mb-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
-          <span className="flex shrink-0 items-center gap-1 text-xs text-ink-3">
-            <TagIcon className="size-3.5" />
-          </span>
-          {tags.map((t) => {
-            const on = tagFilter.has(t.id);
-            return (
-              <button
-                key={t.id}
-                onClick={() =>
-                  setTagFilter((prev) => {
-                    const next = new Set(prev);
-                    if (on) next.delete(t.id);
-                    else next.add(t.id);
-                    return next;
-                  })
-                }
-                className={cx(
-                  "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-medium ring-1 ring-inset transition-all",
-                  on ? cx(TAG_STYLE[t.color].chip, "ring-2") : "bg-surface text-ink-2 ring-border hover:ring-border-strong",
-                )}
-              >
-                <span className={cx("size-1.5 rounded-full", TAG_STYLE[t.color].dot)} />
-                {t.name}
+              <button onClick={() => setFiltersOpen(true)} className="max-w-[260px] truncate">
+                {c.label}
               </button>
-            );
-          })}
+              <button
+                onClick={() => changeFilters((f) => ({ ...f, ...c.clear(f) }))}
+                className="flex size-6 items-center justify-center rounded-full hover:bg-indigo-100"
+                aria-label={`Remove filter: ${c.label}`}
+              >
+                <X className="size-3.5" />
+              </button>
+            </span>
+          ))}
+          <button onClick={() => changeFilters(() => NO_FILTERS)} className="shrink-0 px-2 text-xs font-medium text-accent">
+            Clear all
+          </button>
         </div>
       )}
 
@@ -686,15 +614,14 @@ export function CallIn({
         </motion.div>
       )}
 
-      <StatusFilterDrawer
-        open={statusOpen}
-        onClose={() => setStatusOpen(false)}
+      <CallInFilterSheet
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
         events={selected}
-        value={statusFilters}
-        onChange={(update) => {
-          setStatusFilters(update);
-          setLimit(PAGE);
-        }}
+        tags={tags}
+        value={filters}
+        onChange={changeFilters}
+        resultCount={filtered.length}
       />
 
       <StatusMenu
@@ -779,7 +706,7 @@ function EventHeader({
           )}
       </div>
       <div className="mt-1 text-[11px] text-ink-3 tabular-nums">
-        {counts.no_data} to call · {confirmed} confirmed
+        {counts.no_data} to call · {confirmed} {confirmed === 1 ? "confirm" : "confirms"}
       </div>
     </th>
   );

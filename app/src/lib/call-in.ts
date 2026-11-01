@@ -51,7 +51,7 @@ export type CallInEvent = Pick<
   | "caller_script"
   | "plus_ones_allowed"
   | "max_guests"
-> & { list_size: number; not_contacted: number; deadline_passed: boolean };
+> & { list_size: number; not_contacted: number; confirms: number; deadline_passed: boolean };
 
 /** Upcoming events that can still be called for, soonest first. */
 export async function callableEvents(): Promise<CallInEvent[]> {
@@ -73,6 +73,7 @@ export async function callableEvents(): Promise<CallInEvent[]> {
       max_guests: e.max_guests,
       list_size: e.stats.rsvp.total,
       not_contacted: e.stats.rsvp.no_data,
+      confirms: e.stats.rsvp.confirmed + e.stats.rsvp.reconfirmed,
       deadline_passed: !!e.rsvp_deadline && e.rsvp_deadline < new Date().toISOString(),
     }));
 }

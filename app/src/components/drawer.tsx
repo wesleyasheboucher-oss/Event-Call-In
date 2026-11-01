@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useDragControls, type DragControls } from "motion/react";
 import { X } from "lucide-react";
 import { cx, IconButton } from "./ui";
 
@@ -154,5 +154,81 @@ export function Modal({
         )}
       </AnimatePresence>
     </Portal>
+  );
+}
+
+/**
+ * Floating sheet that rises from the bottom, inset from the screen edges. Drag the
+ * handle (or the sheet) down, tap outside, or press Escape to close.
+ */
+export function BottomSheet({
+  open,
+  onClose,
+  title,
+  footer,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  useEscape(open, onClose);
+  const drag = useDragControls();
+  return (
+    <Portal>
+      <AnimatePresence>
+        {open && (
+          <div
+            className="fixed inset-0 z-50 flex items-end justify-center p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-4"
+            role="dialog"
+            aria-modal="true"
+          >
+            <motion.div
+              className="absolute inset-0 bg-stone-900/25 backdrop-blur-[2px]"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={onClose}
+            />
+            <motion.div
+              className="relative flex max-h-[85dvh] w-full max-w-lg flex-col rounded-3xl bg-surface shadow-[var(--shadow-drawer)] ring-1 ring-border"
+              initial={{ y: "110%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "110%" }}
+              transition={SPRING}
+              drag="y"
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={{ top: 0, bottom: 0.6 }}
+              dragListener={false}
+              dragControls={drag}
+              onDragEnd={(_, info) => {
+                if (info.offset.y > 100 || info.velocity.y > 500) onClose();
+              }}
+            >
+              <SheetHandle controls={drag} />
+              <div className="flex items-center gap-3 px-6 pt-1 pb-3" onPointerDown={(e) => drag.start(e)} style={{ touchAction: "none" }}>
+                <h2 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight text-ink">{title}</h2>
+                <IconButton label="Close" onClick={onClose} className="-mr-2">
+                  <X className="size-4" />
+                </IconButton>
+              </div>
+              <div className="flex-1 overflow-y-auto overscroll-contain border-t border-border">{children}</div>
+              {footer && <div className="rounded-b-3xl border-t border-border bg-surface-2/50 px-6 py-4">{footer}</div>}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </Portal>
+  );
+}
+
+function SheetHandle({ controls }: { controls: DragControls }) {
+  return (
+    <div className="flex cursor-grab justify-center pt-2.5 pb-1" onPointerDown={(e) => controls.start(e)} style={{ touchAction: "none" }}>
+      <span className="h-1.5 w-10 rounded-full bg-border-strong" />
+    </div>
   );
 }
