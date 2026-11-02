@@ -17,7 +17,7 @@ import { downloadCsv } from "@/lib/csv";
 import { bulkTagContacts } from "@/app/actions/tags";
 import { Page, PageHeader } from "@/components/page";
 import { Modal } from "@/components/drawer";
-import { TagChip, TagSelector } from "@/components/tags";
+import { TagSelector } from "@/components/tags";
 import { ContactDivisionBadge, ContactDivisionMini } from "@/components/division";
 import { Avatar, Button, Card, cx, EmptyState, Select } from "@/components/ui";
 import { ContactDrawer } from "./contact-drawer";
@@ -25,7 +25,7 @@ import { AddContactDrawer } from "./add-contact-drawer";
 import { ManageTagsDrawer } from "./manage-tags-drawer";
 
 type SortKey = "name" | "events" | "attended" | "no_shows" | "last_event" | "added";
-type FilterKey = "active" | "inactive" | "div_4" | "div_6" | "import" | "walk_in" | "manual" | "guest" | "no_shows" | "never_attended" | "no_phone" | "no_email";
+type FilterKey = "active" | "inactive" | "div_4" | "div_6" | "import" | "walk_in" | "manual" | "guest" | "signup" | "no_shows" | "never_attended" | "no_phone" | "no_email";
 
 // Within "division" and "source", picking several means any of them; "flag" filters all apply.
 const FILTERS: { key: FilterKey; label: string; test: (c: ContactListRow) => boolean; group: "active" | "division" | "source" | "flag" }[] = [
@@ -37,6 +37,7 @@ const FILTERS: { key: FilterKey; label: string; test: (c: ContactListRow) => boo
   { key: "walk_in", label: "Walk-ins", test: (c) => c.source === "walk_in", group: "source" },
   { key: "manual", label: "Added manually", test: (c) => c.source === "manual", group: "source" },
   { key: "guest", label: "Guests", test: (c) => c.source === "guest", group: "source" },
+  { key: "signup", label: "Signed up online", test: (c) => c.source === "signup", group: "source" },
   { key: "no_shows", label: "Has no-shows", test: (c) => c.no_show_count > 0, group: "flag" },
   { key: "never_attended", label: "Never attended", test: (c) => c.attended_count === 0, group: "flag" },
   { key: "no_phone", label: "Missing phone", test: (c) => !c.phone, group: "flag" },
@@ -112,29 +113,6 @@ function Checkbox({ checked, indeterminate, onChange, label }: { checked: boolea
 }
 
 /** Up to `max` tag chips, then "+n". */
-function TagList({
-  ids,
-  byId,
-  max = 3,
-  wrap = true,
-}: {
-  ids: number[];
-  byId: Map<number, TagWithCount>;
-  max?: number;
-  wrap?: boolean;
-}) {
-  const tags = ids.map((id) => byId.get(id)).filter(Boolean) as TagWithCount[];
-  if (!tags.length) return null;
-  return (
-    <span className={cx("flex min-w-0 items-center gap-1", wrap ? "flex-wrap" : "flex-nowrap")}>
-      {tags.slice(0, max).map((t) => (
-        <TagChip key={t.id} tag={t} size="xs" className={wrap ? undefined : "max-w-[84px]"} />
-      ))}
-      {tags.length > max && <span className="text-[11px] text-ink-3">+{tags.length - max}</span>}
-    </span>
-  );
-}
-
 export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; tags: TagWithCount[] }) {
   const router = useRouter();
   const layout = useListLayout();
@@ -531,7 +509,6 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                       {!selecting && (
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           <ContactDivisionMini contactId={c.id} value={c.division} onChange={(d) => setDivision(c.id, d)} />
-                          <TagList ids={c.tag_ids} byId={tagsById} max={2} />
                         </div>
                       )}
                     </div>
@@ -615,7 +592,6 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
                                   {c.source === "guest" ? "Guest" : "Walk-in"}
                                 </span>
                               )}
-                              <TagList ids={c.tag_ids} byId={tagsById} max={1} wrap={false} />
                             </div>
                           </div>
                         </td>

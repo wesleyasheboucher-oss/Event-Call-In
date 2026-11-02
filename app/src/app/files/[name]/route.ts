@@ -1,13 +1,26 @@
 import { getUser } from "@/lib/auth";
+import { get } from "@/lib/db";
 import { CONTENT_TYPES, SAFE_NAME, serveFile } from "@/lib/storage";
 
-export async function GET(_req: Request, ctx: RouteContext<"/files/[name]">) {
-  const user = await getUser();
-  if (!user) return new Response("Not found", { status: 404 });
+/** Images shown on a shareable event's public page can be fetched without signing in. */
+async function isPublicImage(name: string) {
+  const ref = `/files/${name}`;
+  return !!(await get(
+    `SELECT 1 FROM events
+      WHERE visibility = 'shareable' AND archived_at IS NULL AND status <> 'draft'
+        AND (cover_image = ? OR position(? IN speakers) > 0)
+      LIMIT 1`,
+    [ref, `"${ref}"`],
+  ));
+}
 
+export async function GET(_req: Request, ctx: RouteContext<"/files/[name]">) {
   const { name } = await ctx.params;
   const match = SAFE_NAME.exec(name);
   if (!match) return new Response("Not found", { status: 404 });
+
+  const user = await getUser();
+  if (!user && !(await isPublicImage(name))) return new Response("Not found", { status: 404 });
 
   const file = await serveFile(name);
   if (!file) return new Response("Not found", { status: 404 });

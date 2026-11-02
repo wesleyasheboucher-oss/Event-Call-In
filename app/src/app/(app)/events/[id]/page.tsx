@@ -521,6 +521,20 @@ export default async function EventPage(props: PageProps<"/events/[id]">) {
               </div>
             )}
           </div>
+          {event.visibility === "shareable" && !event.archived_at && event.status !== "draft" && (
+            <a
+              href={`/e/${event.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 flex items-center justify-between gap-3 rounded-2xl bg-violet-50 px-4 py-3 text-sm ring-1 ring-violet-200 transition-colors hover:bg-violet-100"
+            >
+              <span>
+                <span className="block font-medium text-violet-800">Public sign-up page</span>
+                <span className="block text-xs text-violet-700/80">Anyone with the link can sign up</span>
+              </span>
+              <ExternalLink className="size-4 shrink-0 text-violet-700" />
+            </a>
+          )}
           <p className="mt-3 px-2 text-xs text-ink-3">
             {event.visibility === "shareable" ? "Marked shareable" : "Internal only"} · Updated {fmt(event.updated_at, tz, "MMM d, yyyy")}
           </p>

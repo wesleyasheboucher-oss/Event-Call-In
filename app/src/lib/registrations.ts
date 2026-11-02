@@ -18,13 +18,16 @@ export async function logCall(registrationId: number, userId: number) {
   return ts;
 }
 
-/** `via: "upload"` marks changes from a confirms list upload (not credited on the leaderboard). */
-export async function changeRsvp(registrationId: number, to: RsvpStatus, userId: number, via: "" | "upload" = "") {
+/**
+ * `via: "upload"` marks changes from a confirms list upload, `"signup"` a public sign-up page
+ * (no user). Neither is credited on the leaderboard.
+ */
+export async function changeRsvp(registrationId: number, to: RsvpStatus, userId: number | null, via: "" | "upload" | "signup" = "") {
   const reg = await get<{ rsvp: RsvpStatus }>("SELECT rsvp FROM registrations WHERE id = ?", [registrationId]);
   if (!reg) throw new Error("Registration not found");
   if (reg.rsvp === to) return;
-  // An upload isn't a call, so it doesn't take over "last called by".
-  if (via === "upload") await run("UPDATE registrations SET rsvp = ? WHERE id = ?", [to, registrationId]);
+  // An upload or sign-up isn't a call, so it doesn't take over "last called by".
+  if (via) await run("UPDATE registrations SET rsvp = ? WHERE id = ?", [to, registrationId]);
   else await run("UPDATE registrations SET rsvp = ?, called_by = ? WHERE id = ?", [to, userId, registrationId]);
   await run(
     "INSERT INTO status_changes (registration_id, kind, from_value, to_value, user_id, created_at, via) VALUES (?, 'rsvp', ?, ?, ?, ?, ?)",

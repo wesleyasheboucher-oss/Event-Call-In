@@ -258,7 +258,7 @@ export function EventForm({
                     ))}
                   </Select>
                 </Field>
-                <Field label="Visibility" required hint="Shareable only matters if public pages are added later.">
+                <Field label="Visibility" required hint="Shareable events get a public sign-up page once published.">
                   <Segmented
                     value={v.visibility}
                     onChange={(x) => set("visibility", x)}

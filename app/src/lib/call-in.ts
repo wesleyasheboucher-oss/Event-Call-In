@@ -30,7 +30,7 @@ export type CallInRow = {
   /** 1 = active, 0 = inactive */
   active: number;
   /** 'guest' = came in as someone's plus-one */
-  source: "import" | "walk_in" | "manual" | "guest";
+  source: "import" | "walk_in" | "manual" | "guest" | "signup";
   attended_count: number;
   no_show_count: number;
   /** keyed by event id; missing = not on that event's list */

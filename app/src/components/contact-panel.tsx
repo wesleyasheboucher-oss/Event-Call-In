@@ -183,7 +183,7 @@ export function AddressBlock({ detail }: { detail: ContactDetail }) {
       )}
       <div className="flex gap-2 text-xs text-ink-3">
         <CalendarDays className="size-4 shrink-0" /> Added {fmt(c.created_at, "America/New_York", "MMM d, yyyy")} ·{" "}
-        {{ walk_in: "Walk-in", import: "Import", manual: "Manual", guest: "Came as a guest" }[c.source]}
+        {{ walk_in: "Walk-in", import: "Import", manual: "Manual", guest: "Came as a guest", signup: "Signed up online" }[c.source]}
       </div>
     </div>
   );

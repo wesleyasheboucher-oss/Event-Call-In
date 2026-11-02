@@ -20,7 +20,7 @@ export type GuestInput = {
  * (source 'guest' when new) with their own registration on the same event,
  * linked via guest_of and following the host's RSVP. Call inside tx().
  */
-export async function addGuest(hostRegistrationId: number, input: GuestInput, userId: number): Promise<number> {
+export async function addGuest(hostRegistrationId: number, input: GuestInput, userId: number | null): Promise<number> {
   const host = await get<{ event_id: number; contact_id: number; rsvp: RsvpStatus; guest_of: number | null }>(
     "SELECT event_id, contact_id, rsvp, guest_of FROM registrations WHERE id = ?",
     [hostRegistrationId],
@@ -61,7 +61,7 @@ export async function addGuest(hostRegistrationId: number, input: GuestInput, us
     throw new Error("That person is bringing guests of their own, so they can't also be a guest.");
   }
   await run("UPDATE registrations SET guest_of = ?, rsvp = ? WHERE id = ?", [hostRegistrationId, host.rsvp, regId]);
-  if (input.checkIn) await changeAttendance(regId, "attended", userId);
+  if (input.checkIn && userId) await changeAttendance(regId, "attended", userId);
   return regId;
 }
 

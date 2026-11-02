@@ -172,8 +172,9 @@ export async function getRegistrationNotes(registrationId: number): Promise<Note
 
 export async function getRegistrationChanges(registrationId: number): Promise<ChangeRow[]> {
   return all<ChangeRow>(
-    `SELECT s.id, s.kind, s.from_value, s.to_value, s.created_at, u.name AS author
-       FROM status_changes s JOIN users u ON u.id = s.user_id
+    `SELECT s.id, s.kind, s.from_value, s.to_value, s.created_at,
+            COALESCE(u.name, CASE WHEN s.via = 'signup' THEN 'Event sign-up page' ELSE 'Unknown' END) AS author
+       FROM status_changes s LEFT JOIN users u ON u.id = s.user_id
       WHERE s.registration_id = ? ORDER BY s.created_at DESC, s.id DESC`,
     [registrationId],
   );

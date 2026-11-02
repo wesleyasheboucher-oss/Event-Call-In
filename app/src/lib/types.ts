@@ -30,7 +30,7 @@ export type Contact = {
   state: string;
   zip: string;
   notes: string;
-  source: "import" | "walk_in" | "manual" | "guest";
+  source: "import" | "walk_in" | "manual" | "guest" | "signup";
   division: number | null;
   /** digits only; '' when none */
   alt_phone: string;

@@ -29,7 +29,7 @@ function useEscape(open: boolean, onClose: () => void) {
 const noop = () => () => {};
 
 /** Portals to <body>, but only after hydration so server and client markup match. */
-function Portal({ children }: { children: ReactNode }) {
+export function Portal({ children }: { children: ReactNode }) {
   const mounted = useSyncExternalStore(noop, () => true, () => false);
   return mounted ? createPortal(children, document.body) : null;
 }
