@@ -9,6 +9,8 @@ CREATE INDEX IF NOT EXISTS registrations_guest_of ON registrations(guest_of) WHE
 ALTER TABLE registrations DROP COLUMN IF EXISTS guests;
 
 -- Guests are their own contact source (name required; phone/email optional).
+-- NOT VALID: migrations re-run on every start, and later ones allow more sources
+-- (the last one re-adds the full list and checks existing rows).
 ALTER TABLE contacts DROP CONSTRAINT IF EXISTS contacts_source_check;
 ALTER TABLE contacts
-  ADD CONSTRAINT contacts_source_check CHECK (source IN ('import','walk_in','manual','guest'));
+  ADD CONSTRAINT contacts_source_check CHECK (source IN ('import','walk_in','manual','guest')) NOT VALID;

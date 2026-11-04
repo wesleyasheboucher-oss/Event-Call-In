@@ -15,6 +15,7 @@ import {
   Copy,
   Download,
   FileSpreadsheet,
+  History,
   RefreshCw,
   SkipForward,
   Tag as TagIcon,
@@ -22,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { importContacts, matchExisting, type ExistingMatch, type ImportResult } from "@/app/actions/contacts";
+import { importContacts, matchExisting, startImport, type ExistingMatch, type ImportResult } from "@/app/actions/contacts";
 import { fetchTags } from "@/app/actions/tags";
 import {
   applyMapping,
@@ -93,7 +94,7 @@ export function ImportWizard() {
   const [analyzing, setAnalyzing] = useState(false);
   const [mode, setMode] = useState<"skip" | "update">("skip");
   const [progress, setProgress] = useState<number | null>(null);
-  const [result, setResult] = useState<(ImportResult & { inFile: number }) | null>(null);
+  const [result, setResult] = useState<(ImportResult & { inFile: number; importId: number }) | null>(null);
 
   function go(next: Step) {
     setDir(next > step ? 1 : -1);
@@ -196,8 +197,21 @@ export function ImportWizard() {
     const total: ImportResult = { added: 0, updated: 0, skipped: 0, errors: [] };
     setProgress(0);
     try {
+      const importId = await startImport({
+        fileName,
+        mode,
+        tagName,
+        setAside: analyzed
+          .filter((r) => r.status === "in_file" || r.status === "error")
+          .map((r) => ({
+            row: r.row,
+            name: `${r.first_name} ${r.last_name}`.trim(),
+            action: r.status as "in_file" | "error",
+            reason: r.reason ?? "",
+          })),
+      });
       for (let i = 0; i < toSend.length; i += CHUNK) {
-        const res = await importContacts(toSend.slice(i, i + CHUNK), mode, tagName);
+        const res = await importContacts(toSend.slice(i, i + CHUNK), mode, tagName, importId);
         total.added += res.added;
         total.updated += res.updated;
         total.skipped += res.skipped;
@@ -206,7 +220,7 @@ export function ImportWizard() {
       }
       const clientErrors = analyzed.filter((r) => r.status === "error").map((r) => ({ row: r.row, reason: r.reason! }));
       const inFile = analyzed.filter((r) => r.status === "in_file").length;
-      setResult({ ...total, skipped: total.skipped + inFile, errors: [...clientErrors, ...total.errors], inFile });
+      setResult({ ...total, skipped: total.skipped + inFile, errors: [...clientErrors, ...total.errors], inFile, importId });
       router.refresh();
       go(3);
     } catch {
@@ -249,6 +263,13 @@ export function ImportWizard() {
         }
         title="Import contacts"
         description="Bring in a CSV or Excel file. You'll match columns and review everything before it's saved."
+        actions={
+          <Link href="/contacts/imports">
+            <Button variant="ghost" icon={<History className="size-4" />}>
+              Import history
+            </Button>
+          </Link>
+        }
       />
 
       <Stepper step={step} />
@@ -810,7 +831,7 @@ function DoneStep({
   onErrors,
   onAgain,
 }: {
-  result: ImportResult & { inFile: number };
+  result: ImportResult & { inFile: number; importId: number };
   onErrors: () => void;
   onAgain: () => void;
 }) {
@@ -862,6 +883,11 @@ function DoneStep({
         <Button variant="ghost" icon={<X className="size-4" />} onClick={onAgain}>
           Import another file
         </Button>
+        <Link href={`/contacts/imports/${result.importId}`}>
+          <Button variant="secondary" icon={<History className="size-4" />}>
+            See every change
+          </Button>
+        </Link>
         <Link href="/contacts">
           <Button variant="primary">
             Go to contacts <ArrowRight className="size-4" />

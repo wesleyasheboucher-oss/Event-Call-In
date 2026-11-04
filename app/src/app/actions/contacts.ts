@@ -208,49 +208,112 @@ const UPDATABLE = [
   "alt_phone", "training_level", "processing_level", "fsm_name",
 ] as const;
 
+type ChangeLog = {
+  action: "added" | "updated" | "skipped" | "in_file" | "error";
+  row: number;
+  name: string;
+  contactId?: number | null;
+  changes?: Record<string, [string | number, string | number]>;
+  reason?: string;
+};
+
+async function logChanges(importId: number, entries: ChangeLog[]) {
+  for (let i = 0; i < entries.length; i += 200) {
+    const chunk = entries.slice(i, i + 200);
+    await run(
+      `INSERT INTO import_changes (import_id, action, row_number, name, contact_id, changes, reason)
+       VALUES ${chunk.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ")}`,
+      chunk.flatMap((e) => [importId, e.action, e.row, e.name, e.contactId ?? null, JSON.stringify(e.changes ?? {}), e.reason ?? ""]),
+    );
+  }
+}
+
+/**
+ * Opens an import in the history before its chunks are sent. Rows the browser already set
+ * aside (repeats within the file, rows with errors) are logged here since they're never sent.
+ */
+export async function startImport(input: {
+  fileName: string;
+  mode: "skip" | "update";
+  tagName?: string;
+  setAside: { row: number; name: string; action: "in_file" | "error"; reason: string }[];
+}): Promise<number> {
+  const user = await actionUser(["admin"]);
+  return tx(async () => {
+    const id = await insert("INSERT INTO imports (user_id, file_name, mode, tag_name, created_at) VALUES (?, ?, ?, ?, ?)", [
+      user.id,
+      input.fileName.slice(0, 200),
+      input.mode,
+      (input.tagName ?? "").trim().slice(0, 80),
+      now(),
+    ]);
+    await logChanges(id, input.setAside.map((r) => ({ ...r, name: r.name.slice(0, 160), reason: r.reason.slice(0, 200) })));
+    return id;
+  });
+}
+
 /**
  * Imports one chunk. Rows the client flagged as in-file duplicates should not be sent.
  * `tagName` (optional) tags everyone added or updated, e.g. "Fully Paid – Oct 2026".
+ * With `importId` (from startImport), every row is recorded in the import history.
  */
-export async function importContacts(rows: ImportRow[], mode: "skip" | "update", tagName?: string): Promise<ImportResult> {
+export async function importContacts(
+  rows: ImportRow[],
+  mode: "skip" | "update",
+  tagName?: string,
+  importId?: number,
+): Promise<ImportResult> {
   const user = await actionUser(["admin"]);
   const touched: number[] = [];
   const result: ImportResult = { added: 0, updated: 0, skipped: 0, errors: [] };
   const find = await existingIndex();
   const ts = now();
   const toAdd: ImportRow[] = [];
+  const log: ChangeLog[] = [];
+  const nameOf = (r: { first_name: string; last_name: string }) => `${r.first_name} ${r.last_name}`.trim();
   await tx(async () => {
     for (const raw of rows) {
       const r = { ...raw, phone: normalizePhone(raw.phone), alt_phone: normalizePhone(raw.alt_phone), email: normalizeEmail(raw.email) };
       const err = rowError(r);
       if (err) {
         result.errors.push({ row: r.row, reason: err });
+        log.push({ action: "error", row: r.row, name: nameOf(r), reason: err });
         continue;
       }
       const match = find(r.phone, r.email, r.alt_phone, r);
       if (match) {
+        const reason = `Matched existing contact ${match.name}`;
         if (mode === "skip") {
           result.skipped++;
+          log.push({ action: "skipped", row: r.row, name: nameOf(r), contactId: match.id, reason });
           continue;
         }
-        // Only overwrite with non-empty incoming values.
+        // Only overwrite with non-empty incoming values. Keep what each field was, for the history.
+        const before = await get<Record<string, string | number>>(
+          `SELECT ${[...UPDATABLE, "active"].join(", ")} FROM contacts WHERE id = ?`,
+          [match.id],
+        );
         const sets: string[] = [];
         const vals: (string | number)[] = [];
+        const changes: Record<string, [string | number, string | number]> = {};
         for (const k of UPDATABLE) {
           if (r[k]) {
             sets.push(`${k} = ?`);
             vals.push(r[k]);
+            if (before && before[k] !== r[k]) changes[k] = [before[k] ?? "", r[k]];
           }
         }
         if (r.active !== null) {
           sets.push("active = ?");
           vals.push(r.active);
+          if (before && before.active !== r.active) changes.active = [before.active, r.active];
         }
         if (sets.length) {
           await run(`UPDATE contacts SET ${sets.join(", ")}, updated_at = ? WHERE id = ?`, [...vals, ts, match.id]);
         }
         result.updated++;
         touched.push(match.id);
+        log.push({ action: "updated", row: r.row, name: nameOf(r), contactId: match.id, changes, reason });
         continue;
       }
       toAdd.push(r);
@@ -270,13 +333,53 @@ export async function importContacts(rows: ImportRow[], mode: "skip" | "update",
         ]),
       );
       touched.push(...ids.map((x) => x.id));
+      chunk.forEach((r, j) => log.push({ action: "added", row: r.row, name: nameOf(r), contactId: ids[j]?.id }));
     }
     if (tagName?.trim() && touched.length) {
       const tag = await findOrCreateTag(tagName, user.id);
       await tagContacts(touched, tag.id, user.id);
     }
+    if (importId) await logChanges(importId, log);
   });
   return result;
+}
+
+const RESTORABLE = new Set<string>([...UPDATABLE, "active"]);
+
+/**
+ * Puts back what an import changed on one contact. A field is only restored if it still
+ * holds the imported value, so edits made since the import aren't thrown away.
+ */
+export async function undoImportChange(changeId: number): Promise<{ restored: string[]; kept: string[] }> {
+  await actionUser(["admin"]);
+  const out = { restored: [] as string[], kept: [] as string[] };
+  await tx(async () => {
+    const c = await get<{ contact_id: number | null; changes: string; undone_at: string | null; action: string }>(
+      "SELECT contact_id, changes, undone_at, action FROM import_changes WHERE id = ?",
+      [changeId],
+    );
+    if (!c || c.action !== "updated" || !c.contact_id) throw new Error("Nothing to undo for this row.");
+    if (c.undone_at) throw new Error("This change was already undone.");
+    const changes = JSON.parse(c.changes) as Record<string, [string | number, string | number]>;
+    const fields = Object.keys(changes).filter((k) => RESTORABLE.has(k));
+    if (!fields.length) throw new Error("This row didn't change anything.");
+    const current = await get<Record<string, string | number>>(`SELECT ${fields.join(", ")} FROM contacts WHERE id = ?`, [c.contact_id]);
+    if (!current) throw new Error("That contact no longer exists.");
+    const sets: string[] = [];
+    const vals: (string | number)[] = [];
+    for (const k of fields) {
+      const [old, imported] = changes[k];
+      if (current[k] === imported) {
+        sets.push(`${k} = ?`);
+        vals.push(old);
+        out.restored.push(k);
+      } else out.kept.push(k);
+    }
+    if (sets.length) await run(`UPDATE contacts SET ${sets.join(", ")}, updated_at = ? WHERE id = ?`, [...vals, now(), c.contact_id]);
+    await run("UPDATE import_changes SET undone_at = ? WHERE id = ?", [now(), changeId]);
+  });
+  refresh();
+  return out;
 }
 
 export async function contactCount() {

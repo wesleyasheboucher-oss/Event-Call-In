@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
+import { connection } from "next/server";
 import { AlertTriangle, CalendarDays, DoorOpen, ExternalLink, Globe, Mail, MapPin, Phone, Shirt, Utensils, Backpack, Car, Accessibility, Navigation } from "lucide-react";
 import { getEvent, getEventStats } from "@/lib/queries";
 import { publicSignupState } from "@/lib/public-event";
@@ -21,6 +22,7 @@ async function publicEvent(id: string): Promise<EventRecord | null> {
 }
 
 export async function generateMetadata(props: PageProps<"/e/[id]">): Promise<Metadata> {
+  await connection();
   const event = await publicEvent((await props.params).id);
   if (!event) return { title: "Event not found" };
   return {
@@ -43,6 +45,8 @@ function mapsUrl(e: EventRecord) {
 }
 
 async function PublicEvent({ params }: { params: Promise<{ id: string }> }) {
+  // Whether sign-ups are open depends on the current time, so render per request.
+  await connection();
   const event = await publicEvent((await params).id);
   if (!event) notFound();
   const stats = await getEventStats(event.id);
