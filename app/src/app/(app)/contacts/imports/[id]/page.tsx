@@ -27,7 +27,13 @@ async function ImportDetail({ params }: { params: Promise<{ id: string }> }) {
           <>
             {fmt(s.created_at, "America/New_York", "MMM d, yyyy 'at' h:mm a")}
             {s.user_name && ` by ${s.user_name}`}
-            {s.mode === "update" ? " · Matching contacts were updated" : " · Matching contacts were left as they were"}
+            {
+              {
+                merge: " · New info was added to matching contacts",
+                update: " · Matching contacts took the file's info",
+                skip: " · Matching contacts were left as they were",
+              }[s.mode]
+            }
             {s.tag_name && ` · Tagged “${s.tag_name}”`}
           </>
         }

@@ -6,7 +6,7 @@ export type ImportAction = "added" | "updated" | "skipped" | "in_file" | "error"
 export type ImportSummary = {
   id: number;
   file_name: string;
-  mode: "skip" | "update";
+  mode: "skip" | "merge" | "update";
   tag_name: string;
   created_at: string;
   user_name: string | null;

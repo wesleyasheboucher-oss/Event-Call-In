@@ -1,7 +1,7 @@
 // Pure helpers for contact import: header guessing, row mapping, validation.
 // Used on both the client (mapping step) and the server (analysis/import).
 
-import { isValidEmail, normalizeEmail, normalizePhone } from "./phone";
+import { formatPhone, isValidEmail, normalizeEmail, normalizePhone } from "./phone";
 
 export const IMPORT_FIELDS = [
   { key: "full_name", label: "Full name", hint: "Split into first / last" },
@@ -204,4 +204,71 @@ export function sameName(a: { first_name: string; last_name: string }, b: { firs
 /** Drop rows that are entirely empty (common at the bottom of spreadsheets). */
 export function dropBlankRows(rows: string[][]): string[][] {
   return rows.filter((r) => r.some((c) => String(c ?? "").trim() !== ""));
+}
+
+/* ------------------------- Merging into existing contacts ------------------------- */
+
+/**
+ * What to do with a row that matches an existing contact:
+ * - skip:   leave the contact exactly as it is
+ * - merge:  fill in blank fields; new phone numbers are added, never replace one
+ * - update: the file's values win; the old phone/email are kept as the 2nd number or in notes
+ * - new:    it's a different person (e.g. family sharing an email): add them as a new contact
+ */
+export type MergeChoice = "skip" | "merge" | "update" | "new";
+
+export const MERGE_FIELDS = [
+  "first_name", "last_name", "phone", "alt_phone", "email", "street", "city", "state", "zip", "notes",
+  "training_level", "processing_level", "fsm_name",
+] as const;
+export type MergeField = (typeof MERGE_FIELDS)[number];
+export type ExistingContact = Record<MergeField, string> & { id: number; active: number };
+
+type Incoming = Pick<MappedRow, MergeField | "active">;
+export type MergePlan = Partial<Record<MergeField, string>> & { active?: 0 | 1 };
+
+const PLAIN: MergeField[] = ["first_name", "last_name", "street", "city", "state", "zip", "training_level", "processing_level", "fsm_name"];
+
+/** The new values to write for `choice` (only fields that actually change). Pure: used for the preview and the save. */
+export function planMerge(existing: ExistingContact, incoming: Incoming, choice: MergeChoice): MergePlan {
+  if (choice === "skip" || choice === "new") return {};
+  const plan: MergePlan = {};
+  const extraNotes: string[] = [];
+
+  for (const k of PLAIN) {
+    const v = incoming[k];
+    if (v && v !== existing[k] && (choice === "update" || !existing[k])) plan[k] = v;
+  }
+
+  // Phones: two slots. Merge keeps the existing order and adds new numbers; update puts the
+  // file's numbers first. Either way, a number that doesn't fit goes into notes, not away.
+  const mine = [existing.phone, existing.alt_phone].filter(Boolean);
+  const theirs = [incoming.phone, incoming.alt_phone].filter(Boolean);
+  const ordered = [...new Set(choice === "update" ? [...theirs, ...mine] : [...mine, ...theirs])];
+  const [phone = "", alt = "", ...overflow] = ordered;
+  if (phone !== existing.phone) plan.phone = phone;
+  if (alt !== existing.alt_phone) plan.alt_phone = alt;
+  for (const p of overflow) {
+    if (!existing.notes.includes(formatPhone(p))) extraNotes.push(`Other phone: ${formatPhone(p)}`);
+  }
+
+  // One email per contact: keep the other one in notes.
+  if (incoming.email && incoming.email !== existing.email) {
+    if (!existing.email) plan.email = incoming.email;
+    else if (choice === "update") {
+      plan.email = incoming.email;
+      if (!existing.notes.includes(existing.email)) extraNotes.push(`Previous email: ${existing.email}`);
+    } else if (!existing.notes.includes(incoming.email)) extraNotes.push(`Other email: ${incoming.email}`);
+  }
+
+  if (incoming.notes && !existing.notes.includes(incoming.notes)) extraNotes.push(incoming.notes);
+  if (extraNotes.length) plan.notes = [existing.notes, ...extraNotes].filter(Boolean).join("\n");
+
+  if (choice === "update" && incoming.active !== null && incoming.active !== existing.active) plan.active = incoming.active;
+  return plan;
+}
+
+/** Numbers in the row that the existing contact doesn't have yet. */
+export function newPhones(existing: Pick<ExistingContact, "phone" | "alt_phone">, incoming: Pick<MappedRow, "phone" | "alt_phone">): string[] {
+  return [incoming.phone, incoming.alt_phone].filter((p) => p && p !== existing.phone && p !== existing.alt_phone);
 }

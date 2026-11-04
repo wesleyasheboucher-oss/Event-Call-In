@@ -12,10 +12,11 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
-  Copy,
   Download,
   FileSpreadsheet,
   History,
+  Phone,
+  Plus,
   RefreshCw,
   SkipForward,
   Tag as TagIcon,
@@ -23,7 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { importContacts, matchExisting, startImport, type ExistingMatch, type ImportResult } from "@/app/actions/contacts";
+import { importContacts, matchExisting, startImport, type ExistingMatch, type ImportMode, type ImportResult } from "@/app/actions/contacts";
 import { fetchTags } from "@/app/actions/tags";
 import {
   applyMapping,
@@ -32,10 +33,13 @@ import {
   guessMapping,
   sameName,
   IMPORT_FIELDS,
+  newPhones,
+  planMerge,
   rowError,
   type ColumnMapping,
   type ImportField,
   type MappedRow,
+  type MergeChoice,
 } from "@/lib/import";
 import { downloadCsv } from "@/lib/csv";
 import { formatPhone } from "@/lib/phone";
@@ -92,9 +96,12 @@ export function ImportWizard() {
   const [mapping, setMapping] = useState<ColumnMapping | null>(null);
   const [analyzed, setAnalyzed] = useState<Analyzed[] | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [mode, setMode] = useState<"skip" | "update">("skip");
+  const [mode, setMode] = useState<ImportMode>("merge");
+  // Per-row choices for rows that match a contact (or repeat a row), set in the preview.
+  const [overrides, setOverrides] = useState<Record<number, MergeChoice>>({});
+  const choiceOf = (r: Analyzed): MergeChoice => overrides[r.row] ?? (r.status === "in_file" ? "skip" : mode);
   const [progress, setProgress] = useState<number | null>(null);
-  const [result, setResult] = useState<(ImportResult & { inFile: number; importId: number }) | null>(null);
+  const [result, setResult] = useState<(ImportResult & { inFile: number; importId: number | null }) | null>(null);
 
   function go(next: Step) {
     setDir(next > step ? 1 : -1);
@@ -164,6 +171,7 @@ export function ImportWizard() {
         });
       }
       setAnalyzed(out);
+      setOverrides({});
       go(2);
     } catch {
       toast.error("Couldn't analyze the file. Please try again.");
@@ -174,9 +182,12 @@ export function ImportWizard() {
 
   async function runImport() {
     if (!analyzed) return;
+    // A repeat within the file is only sent if it was marked as a different person.
+    const sent = (r: Analyzed) => r.status === "new" || r.status === "duplicate" || (r.status === "in_file" && choiceOf(r) === "new");
     const toSend = analyzed
-      .filter((r) => r.status === "new" || r.status === "duplicate")
+      .filter(sent)
       .map((r) => ({
+        choice: r.status === "new" ? undefined : choiceOf(r),
         row: r.row,
         first_name: r.first_name,
         last_name: r.last_name,
@@ -195,6 +206,7 @@ export function ImportWizard() {
         warnings: [],
       }));
     const total: ImportResult = { added: 0, updated: 0, skipped: 0, errors: [] };
+    let saved = 0; // rows confirmed saved, for the message if a later chunk fails
     setProgress(0);
     try {
       const importId = await startImport({
@@ -202,7 +214,7 @@ export function ImportWizard() {
         mode,
         tagName,
         setAside: analyzed
-          .filter((r) => r.status === "in_file" || r.status === "error")
+          .filter((r) => (r.status === "in_file" && !sent(r)) || r.status === "error")
           .map((r) => ({
             row: r.row,
             name: `${r.first_name} ${r.last_name}`.trim(),
@@ -216,15 +228,22 @@ export function ImportWizard() {
         total.updated += res.updated;
         total.skipped += res.skipped;
         total.errors.push(...res.errors);
+        saved = Math.min(toSend.length, i + CHUNK);
         setProgress(Math.min(1, (i + CHUNK) / Math.max(1, toSend.length)));
       }
       const clientErrors = analyzed.filter((r) => r.status === "error").map((r) => ({ row: r.row, reason: r.reason! }));
-      const inFile = analyzed.filter((r) => r.status === "in_file").length;
+      const inFile = analyzed.filter((r) => r.status === "in_file" && !sent(r)).length;
       setResult({ ...total, skipped: total.skipped + inFile, errors: [...clientErrors, ...total.errors], inFile, importId });
       router.refresh();
       go(3);
-    } catch {
-      toast.error("The import stopped partway. Rows already saved were kept.");
+    } catch (e) {
+      console.error(e);
+      toast.error(
+        saved
+          ? `The import stopped after ${saved.toLocaleString()} of ${toSend.length.toLocaleString()} rows. Those were saved; the rest weren't.`
+          : "The import failed and nothing was saved. Please try again.",
+        { duration: 15000 },
+      );
     } finally {
       setProgress(null);
     }
@@ -306,7 +325,12 @@ export function ImportWizard() {
               <PreviewStep
                 analyzed={analyzed}
                 mode={mode}
-                onMode={setMode}
+                onMode={(m) => {
+                  setMode(m);
+                  setOverrides({});
+                }}
+                choiceOf={choiceOf}
+                onChoice={(row, c) => setOverrides((o) => ({ ...o, [row]: c }))}
                 onBack={() => go(1)}
                 onImport={runImport}
                 progress={progress}
@@ -593,10 +617,18 @@ function MapStep({
 
 type Tab = "new" | "duplicate" | "error";
 
+const MODE_OPTIONS = [
+  { key: "merge", icon: Plus, title: "Add new info", body: "Fill in blanks and add new phone numbers. Nothing is replaced.", badge: "Recommended" },
+  { key: "update", icon: RefreshCw, title: "Use the file's info", body: "The file's values win. Old phone and email are kept as backups." },
+  { key: "skip", icon: SkipForward, title: "Leave them as they are", body: "Don't change existing contacts." },
+] as const;
+
 function PreviewStep({
   analyzed,
   mode,
   onMode,
+  choiceOf,
+  onChoice,
   onBack,
   onImport,
   progress,
@@ -604,8 +636,10 @@ function PreviewStep({
   onTagName,
 }: {
   analyzed: Analyzed[];
-  mode: "skip" | "update";
-  onMode: (m: "skip" | "update") => void;
+  mode: ImportMode;
+  onMode: (m: ImportMode) => void;
+  choiceOf: (r: Analyzed) => MergeChoice;
+  onChoice: (row: number, c: MergeChoice) => void;
   onBack: () => void;
   onImport: () => void;
   progress: number | null;
@@ -628,13 +662,21 @@ function PreviewStep({
     duplicate: analyzed.filter((r) => r.status === "duplicate" || r.status === "in_file"),
     error: analyzed.filter((r) => r.status === "error"),
   };
-  const existingDupes = groups.duplicate.filter((r) => r.status === "duplicate").length;
-  const [tab, setTab] = useState<Tab>(groups.new.length ? "new" : groups.duplicate.length ? "duplicate" : "error");
-  const willWrite = groups.new.length + (mode === "update" ? existingDupes : 0);
+  const [tab, setTab] = useState<Tab>(groups.duplicate.length ? "duplicate" : groups.new.length ? "new" : "error");
+
+  // What the import will do, counting each row's own choice.
+  let adding = groups.new.length;
+  let updating = 0;
+  for (const r of groups.duplicate) {
+    const c = choiceOf(r);
+    if (c === "new") adding++;
+    else if (c !== "skip" && r.status === "duplicate" && r.match && Object.keys(planMerge(r.match.contact, r, c)).length) updating++;
+  }
+  const willWrite = adding + updating;
 
   const tiles: { key: Tab; label: string; value: number; tone: string; ring: string; sub: string }[] = [
     { key: "new", label: "New contacts", value: groups.new.length, tone: "text-emerald-600", ring: "ring-emerald-300", sub: "Will be added" },
-    { key: "duplicate", label: "Likely duplicates", value: groups.duplicate.length, tone: "text-amber-600", ring: "ring-amber-300", sub: "Same phone or email" },
+    { key: "duplicate", label: "Possible duplicates", value: groups.duplicate.length, tone: "text-amber-600", ring: "ring-amber-300", sub: "Already in Contacts, or repeated in the file" },
     { key: "error", label: "Errors", value: groups.error.length, tone: "text-rose-600", ring: "ring-rose-300", sub: "Won't be imported" },
   ];
   const list = groups[tab];
@@ -660,16 +702,12 @@ function PreviewStep({
         ))}
       </div>
 
-      {groups.duplicate.length > 0 && (
+      {groups.duplicate.some((r) => r.status === "duplicate") && (
         <div>
-          <div className="mb-2 text-sm font-medium">When a row matches an existing contact</div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {(
-              [
-                { key: "skip", icon: SkipForward, title: "Skip duplicates", body: "Leave existing contacts exactly as they are." },
-                { key: "update", icon: RefreshCw, title: "Update existing", body: "Fill in or replace fields with non-empty values from this file." },
-              ] as const
-            ).map((o) => (
+          <div className="mb-1 text-sm font-medium">When someone is already in Contacts</div>
+          <p className="mb-3 text-[13px] text-ink-2">This applies to everyone. You can still change any one person below.</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {MODE_OPTIONS.map((o) => (
               <button
                 key={o.key}
                 onClick={() => onMode(o.key)}
@@ -679,9 +717,10 @@ function PreviewStep({
                 )}
               >
                 <o.icon className={cx("mt-0.5 size-4 shrink-0", mode === o.key ? "text-accent" : "text-ink-3")} />
-                <span>
+                <span className="pr-5">
                   <span className="block text-sm font-medium">{o.title}</span>
                   <span className="mt-0.5 block text-[13px] text-ink-2">{o.body}</span>
+                  {"badge" in o && <span className="mt-2 inline-block rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent-ink">{o.badge}</span>}
                 </span>
                 {mode === o.key && (
                   <motion.span
@@ -716,12 +755,12 @@ function PreviewStep({
       )}
 
       <Card className="overflow-hidden">
-        <div className="flex gap-1 border-b border-border px-3 pt-3">
+        <div className="flex gap-1 overflow-x-auto border-b border-border px-3 pt-3 [scrollbar-width:none]">
           {tiles.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={cx("relative px-3 pb-3 text-sm font-medium transition-colors", tab === t.key ? "text-ink" : "text-ink-3 hover:text-ink-2")}
+              className={cx("relative shrink-0 px-3 pb-3 text-sm font-medium transition-colors", tab === t.key ? "text-ink" : "text-ink-3 hover:text-ink-2")}
             >
               {t.label} <span className="text-ink-3 tabular-nums">{t.value}</span>
               {tab === t.key && <motion.span layoutId="preview-tab" className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent" />}
@@ -730,6 +769,8 @@ function PreviewStep({
         </div>
         {list.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-ink-3">Nothing here.</div>
+        ) : tab === "duplicate" ? (
+          <DuplicateList rows={list} choiceOf={choiceOf} onChoice={onChoice} />
         ) : (
           <div className="max-h-[420px] overflow-auto">
             <table className="w-full min-w-[640px] text-sm">
@@ -739,7 +780,7 @@ function PreviewStep({
                   <th className="px-3 py-2.5 font-medium">Name</th>
                   <th className="px-3 py-2.5 font-medium">Phone</th>
                   <th className="px-3 py-2.5 font-medium">Email</th>
-                  <th className="px-3 py-2.5 pr-6 font-medium">{tab === "error" ? "Problem" : tab === "duplicate" ? "Matches" : "Check"}</th>
+                  <th className="px-3 py-2.5 pr-6 font-medium">{tab === "error" ? "Problem" : "Check"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -751,19 +792,6 @@ function PreviewStep({
                     <td className="max-w-[220px] truncate px-3 py-2.5 text-ink-2">{r.email || "—"}</td>
                     {tab === "error" && <td className="px-3 py-2.5 pr-6 text-rose-600">{r.reason}</td>}
                     {tab === "new" && <td className="px-3 py-2.5 pr-6 text-xs text-amber-700">{r.warnings.join(" · ")}</td>}
-                    {tab === "duplicate" && (
-                      <td className="px-3 py-2.5 pr-6">
-                        {r.status === "in_file" ? (
-                          <span className="inline-flex items-center gap-1.5 text-amber-700">
-                            <Copy className="size-3.5" /> Row {r.dupOfRow} in this file
-                          </span>
-                        ) : (
-                          <Link href={`/contacts?c=${r.match?.id}`} target="_blank" className="text-amber-700 hover:underline">
-                            {r.match?.name}
-                          </Link>
-                        )}
-                      </td>
-                    )}
                   </tr>
                 ))}
               </tbody>
@@ -772,10 +800,6 @@ function PreviewStep({
           </div>
         )}
       </Card>
-
-      {groups.duplicate.length > existingDupes && (
-        <p className="text-[13px] text-ink-3">Rows repeated within the file are always skipped; the first occurrence is imported.</p>
-      )}
 
       <div className="rounded-2xl bg-surface p-4 ring-1 ring-border">
         <label className="block">
@@ -816,9 +840,251 @@ function PreviewStep({
           <Button variant="primary" onClick={onImport} disabled={willWrite === 0} loading={progress != null}>
             {willWrite === 0
               ? "Nothing to import"
-              : `Import ${groups.new.length.toLocaleString()} new${mode === "update" && existingDupes ? ` · update ${existingDupes}` : ""}`}
+              : [adding && `Add ${adding.toLocaleString()} new`, updating && `update ${updating.toLocaleString()}`].filter(Boolean).join(" · ").replace(/^u/, "U")}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- Possible duplicates --------------------------- */
+
+const FIELD_LABEL: Record<string, string> = {
+  first_name: "First name", last_name: "Last name", phone: "Phone", alt_phone: "2nd phone", email: "Email",
+  street: "Street", city: "City", state: "State", zip: "ZIP", notes: "Notes",
+  training_level: "Training level", processing_level: "Processing level", fsm_name: "FSM", active: "Active",
+};
+const showValue = (k: string, v: string | number | undefined) =>
+  k === "active" ? (v ? "Yes" : "No") : !v ? "—" : k === "phone" || k === "alt_phone" ? formatPhone(String(v)) : String(v);
+
+type DupFilter = "all" | "phones" | "names" | "repeats";
+
+/**
+ * Each possible duplicate side by side with the contact it matches, the choice for that
+ * person, and exactly what that choice will change.
+ */
+function DuplicateList({
+  rows,
+  choiceOf,
+  onChoice,
+}: {
+  rows: Analyzed[];
+  choiceOf: (r: Analyzed) => MergeChoice;
+  onChoice: (row: number, c: MergeChoice) => void;
+}) {
+  const [filter, setFilter] = useState<DupFilter>("all");
+  const [limit, setLimit] = useState(40);
+  const info = useMemo(
+    () =>
+      new Map(
+        rows.map((r) => {
+          const c = r.match?.contact;
+          return [r.row, { phones: c ? newPhones(c, r) : [], nameDiffers: !!c && !sameName(c, r) }] as const;
+        }),
+      ),
+    [rows],
+  );
+  const counts = {
+    all: rows.length,
+    phones: rows.filter((r) => info.get(r.row)!.phones.length).length,
+    names: rows.filter((r) => info.get(r.row)!.nameDiffers).length,
+    repeats: rows.filter((r) => r.status === "in_file").length,
+  };
+  const shown = rows.filter((r) =>
+    filter === "all" ? true : filter === "phones" ? info.get(r.row)!.phones.length : filter === "names" ? info.get(r.row)!.nameDiffers : r.status === "in_file",
+  );
+  const filters: { key: DupFilter; label: string }[] = [
+    { key: "all", label: "All" },
+    { key: "phones", label: "New phone numbers" },
+    { key: "names", label: "Different name" },
+    { key: "repeats", label: "Repeated in this file" },
+  ];
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2 border-b border-border px-4 py-3">
+        {filters
+          .filter((f) => f.key === "all" || counts[f.key] > 0)
+          .map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setFilter(f.key)}
+              className={cx(
+                "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium ring-1 transition-colors ring-inset",
+                filter === f.key ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border hover:text-ink",
+              )}
+            >
+              {f.label} <span className={cx("tabular-nums", filter === f.key ? "text-white/70" : "text-ink-3")}>{counts[f.key]}</span>
+            </button>
+          ))}
+      </div>
+      <div className="max-h-[640px] divide-y divide-border overflow-auto">
+        {shown.slice(0, limit).map((r) => (
+          <DuplicateCard key={r.row} r={r} choice={choiceOf(r)} onChoice={(c) => onChoice(r.row, c)} {...info.get(r.row)!} />
+        ))}
+        {shown.length > limit && (
+          <div className="p-4 text-center">
+            <Button variant="ghost" size="sm" onClick={() => setLimit((l) => l + 40)}>
+              Show more ({(shown.length - limit).toLocaleString()} left)
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DuplicateCard({
+  r,
+  choice,
+  onChoice,
+  phones,
+  nameDiffers,
+}: {
+  r: Analyzed;
+  choice: MergeChoice;
+  onChoice: (c: MergeChoice) => void;
+  phones: string[];
+  nameDiffers: boolean;
+}) {
+  const existing = r.match?.contact;
+  const repeat = r.status === "in_file";
+  const plan = existing ? planMerge(existing, r, choice) : {};
+  const changed = Object.keys(plan) as (keyof typeof plan)[];
+  const options: { key: MergeChoice; label: string }[] = repeat
+    ? [
+        { key: "skip", label: "Same person, skip" },
+        { key: "new", label: "Different person, add" },
+      ]
+    : [
+        { key: "skip", label: "Leave as is" },
+        { key: "merge", label: "Add new info" },
+        { key: "update", label: "Use file's info" },
+        { key: "new", label: "Different person" },
+      ];
+
+  return (
+    <div className="px-4 py-4 sm:px-5">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-ink-3 tabular-nums">Row {r.row}</span>
+        {phones.length > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-emerald-200 ring-inset">
+            <Phone className="size-3" /> New phone number
+          </span>
+        )}
+        {nameDiffers && (
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200 ring-inset">
+            Different name: could be someone else
+          </span>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <PersonBox title="In your file" name={`${r.first_name} ${r.last_name}`} phone={r.phone} alt={r.alt_phone} email={r.email} highlight={phones} />
+        {repeat ? (
+          <div className="rounded-xl bg-surface-2 p-3 text-[13px] text-ink-2 ring-1 ring-border">
+            <div className="mb-1 text-[11px] font-semibold tracking-wide text-ink-3 uppercase">Repeats</div>
+            Row {r.dupOfRow} of this file has the same phone or email.
+          </div>
+        ) : (
+          existing && (
+            <PersonBox
+              title="Already in Contacts"
+              name={`${existing.first_name} ${existing.last_name}`}
+              phone={existing.phone}
+              alt={existing.alt_phone}
+              email={existing.email}
+              href={`/contacts?c=${existing.id}`}
+            />
+          )
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {options.map((o) => (
+          <button
+            key={o.key}
+            type="button"
+            aria-pressed={choice === o.key}
+            onClick={() => onChoice(o.key)}
+            className={cx(
+              "h-8 rounded-full px-3 text-[13px] font-medium ring-1 transition-colors ring-inset",
+              choice === o.key ? "bg-accent text-white ring-accent" : "bg-surface text-ink-2 ring-border hover:text-ink",
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-2.5 text-[13px]">
+        {choice === "new" ? (
+          <span className="text-emerald-700">Will be added as a new contact.</span>
+        ) : choice === "skip" ? (
+          <span className="text-ink-3">{repeat ? "Skipped: the earlier row is imported." : "Nothing will change."}</span>
+        ) : changed.length === 0 ? (
+          <span className="text-ink-3">Nothing new to add. Contacts already has all of this.</span>
+        ) : (
+          <div className="space-y-0.5">
+            {changed.map((k) => (
+              <div key={k} className="flex flex-wrap items-baseline gap-x-2">
+                <span className="w-20 shrink-0 text-ink-3">{FIELD_LABEL[k] ?? k}</span>
+                {k === "notes" ? (
+                  <span className="text-ink-2">Adds: {plan.notes!.slice((existing?.notes ?? "").length).trim().replace(/\n/g, " · ")}</span>
+                ) : (
+                  <>
+                    <span className="text-ink-3 line-through decoration-rose-400/70">{showValue(k, existing?.[k])}</span>
+                    <ArrowRight className="size-3 self-center text-ink-3" />
+                    <span className="font-medium text-ink">{showValue(k, plan[k])}</span>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PersonBox({
+  title,
+  name,
+  phone,
+  alt,
+  email,
+  href,
+  highlight = [],
+}: {
+  title: string;
+  name: string;
+  phone: string;
+  alt: string;
+  email: string;
+  href?: string;
+  highlight?: string[];
+}) {
+  return (
+    <div className="rounded-xl bg-surface-2 p-3 ring-1 ring-border">
+      <div className="mb-1 text-[11px] font-semibold tracking-wide text-ink-3 uppercase">{title}</div>
+      {href ? (
+        <Link href={href} target="_blank" className="font-medium text-ink hover:text-accent">
+          {name.trim() || "—"}
+        </Link>
+      ) : (
+        <div className="font-medium text-ink">{name.trim() || "—"}</div>
+      )}
+      <div className="mt-1 space-y-0.5 text-[13px] text-ink-2 tabular-nums">
+        {[phone, alt].filter(Boolean).map((p) => (
+          <div key={p} className={cx(highlight.includes(p) && "font-medium text-emerald-700")}>
+            {formatPhone(p)}
+            {highlight.includes(p) && " · new"}
+          </div>
+        ))}
+        {!phone && !alt && <div className="text-ink-3">No phone</div>}
+        <div className="truncate">{email || <span className="text-ink-3">No email</span>}</div>
       </div>
     </div>
   );
@@ -831,7 +1097,7 @@ function DoneStep({
   onErrors,
   onAgain,
 }: {
-  result: ImportResult & { inFile: number; importId: number };
+  result: ImportResult & { inFile: number; importId: number | null };
   onErrors: () => void;
   onAgain: () => void;
 }) {
@@ -874,6 +1140,12 @@ function DoneStep({
           Skipped includes {result.inFile} {result.inFile === 1 ? "row" : "rows"} repeated within the file.
         </p>
       )}
+      {!result.importId && (
+        <p className="mt-4 max-w-md rounded-xl bg-amber-50 px-4 py-3 text-[13px] text-amber-900 ring-1 ring-amber-200">
+          Your contacts were saved, but this import isn&apos;t in Import history: the database needs updating. Run{" "}
+          <code className="font-mono">npm run db:setup</code> to turn history on.
+        </p>
+      )}
       <div className="mt-8 flex flex-wrap justify-center gap-2">
         {result.errors.length > 0 && (
           <Button variant="secondary" icon={<Download className="size-4" />} onClick={onErrors}>
@@ -883,11 +1155,13 @@ function DoneStep({
         <Button variant="ghost" icon={<X className="size-4" />} onClick={onAgain}>
           Import another file
         </Button>
-        <Link href={`/contacts/imports/${result.importId}`}>
-          <Button variant="secondary" icon={<History className="size-4" />}>
-            See every change
-          </Button>
-        </Link>
+        {result.importId && (
+          <Link href={`/contacts/imports/${result.importId}`}>
+            <Button variant="secondary" icon={<History className="size-4" />}>
+              See every change
+            </Button>
+          </Link>
+        )}
         <Link href="/contacts">
           <Button variant="primary">
             Go to contacts <ArrowRight className="size-4" />

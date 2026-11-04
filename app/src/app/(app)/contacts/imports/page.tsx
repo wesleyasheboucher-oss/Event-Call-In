@@ -40,7 +40,7 @@ async function Imports() {
               <span className="block text-xs text-ink-3">
                 {fmt(i.created_at, TZ, "MMM d, yyyy 'at' h:mm a")}
                 {i.user_name && ` · ${i.user_name}`}
-                {i.mode === "update" ? " · Updated matches" : " · Skipped matches"}
+                {{ merge: " · Added new info to matches", update: " · Used the file's info for matches", skip: " · Left matches as they were" }[i.mode]}
                 {i.tag_name && ` · Tagged “${i.tag_name}”`}
               </span>
               <span className="mt-1 flex flex-wrap gap-x-3 text-[13px] tabular-nums">

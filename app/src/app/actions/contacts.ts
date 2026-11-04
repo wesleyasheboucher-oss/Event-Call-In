@@ -5,7 +5,7 @@ import { findOrCreateTag, tagContacts } from "@/lib/tags";
 import { actionUser } from "@/lib/auth";
 import { all, get, insert, now, run, tx } from "@/lib/db";
 import { isValidEmail, normalizeEmail, normalizePhone } from "@/lib/phone";
-import { rowError, sameName, type MappedRow } from "@/lib/import";
+import { MERGE_FIELDS, planMerge, rowError, sameName, type ExistingContact, type MappedRow, type MergeChoice } from "@/lib/import";
 import { CONTACT_DIVISIONS } from "@/lib/status";
 
 export type ContactInput = {
@@ -149,21 +149,22 @@ export async function deleteContact(id: number) {
 
 /* --------------------------------- Import --------------------------------- */
 
-export type ImportRow = Omit<MappedRow, "raw">;
-export type ExistingMatch = { id: number; name: string } | null;
+/** `choice` overrides the import's mode for a row that matches an existing contact. */
+export type ImportRow = Omit<MappedRow, "raw"> & { choice?: MergeChoice };
+export type ExistingMatch = { id: number; name: string; contact: ExistingContact } | null;
+
+const CONTACT_COLS = ["id", ...MERGE_FIELDS, "active"].join(", ");
 
 async function existingIndex() {
-  const rows = await all<{ id: number; first_name: string; last_name: string; phone: string; alt_phone: string; email: string }>(
-    "SELECT id, first_name, last_name, phone, alt_phone, email FROM contacts",
-  );
-  type Known = { id: number; name: string; first_name: string; last_name: string };
+  const rows = await all<ExistingContact>(`SELECT ${CONTACT_COLS} FROM contacts`);
+  type Known = { id: number; name: string; first_name: string; last_name: string; contact: ExistingContact };
   const byPhone = new Map<string, Known[]>();
   const byEmail = new Map<string, Known>();
   const byName = new Map<string, Known>();
   const nameKey = (k: { first_name: string; last_name: string }) =>
     `${k.first_name} ${k.last_name}`.toLowerCase().replace(/\s+/g, " ").trim();
   for (const r of rows) {
-    const m = { id: r.id, name: `${r.first_name} ${r.last_name}`, first_name: r.first_name, last_name: r.last_name };
+    const m = { id: r.id, name: `${r.first_name} ${r.last_name}`, first_name: r.first_name, last_name: r.last_name, contact: r };
     for (const p of [r.phone, r.alt_phone]) if (p) byPhone.set(p, [...(byPhone.get(p) ?? []), m]);
     if (r.email && !byEmail.has(r.email)) byEmail.set(r.email, m);
     if (!byName.has(nameKey(r))) byName.set(nameKey(r), m);
@@ -172,18 +173,18 @@ async function existingIndex() {
   // offices share numbers.
   return (phone: string, email: string, altPhone = "", who?: { first_name: string; last_name: string }): ExistingMatch => {
     const e = email ? byEmail.get(email) : undefined;
-    if (e) return { id: e.id, name: e.name };
+    if (e) return { id: e.id, name: e.name, contact: e.contact };
     if (!who) return null;
     // Nothing to match on but the name: the same full name is treated as the same person.
     if (!phone && !altPhone && !email) {
       const n = byName.get(nameKey(who));
-      return n ? { id: n.id, name: n.name } : null;
+      return n ? { id: n.id, name: n.name, contact: n.contact } : null;
     }
     const p = [phone, altPhone]
       .filter(Boolean)
       .flatMap((x) => byPhone.get(x) ?? [])
       .find((k) => sameName(k, who));
-    return p ? { id: p.id, name: p.name } : null;
+    return p ? { id: p.id, name: p.name, contact: p.contact } : null;
   };
 }
 
@@ -231,14 +232,20 @@ async function logChanges(importId: number, entries: ChangeLog[]) {
 /**
  * Opens an import in the history before its chunks are sent. Rows the browser already set
  * aside (repeats within the file, rows with errors) are logged here since they're never sent.
+ * Returns null if the history can't be written (e.g. its migration hasn't been run yet), so
+ * the import itself still goes ahead.
  */
 export async function startImport(input: {
   fileName: string;
-  mode: "skip" | "update";
+  mode: ImportMode;
   tagName?: string;
   setAside: { row: number; name: string; action: "in_file" | "error"; reason: string }[];
-}): Promise<number> {
+}): Promise<number | null> {
   const user = await actionUser(["admin"]);
+  if (!(await get<{ ok: string | null }>("SELECT to_regclass('import_changes')::text AS ok"))?.ok) {
+    console.error("Import history tables are missing; run `npm run db:setup`. Importing without history.");
+    return null;
+  }
   return tx(async () => {
     const id = await insert("INSERT INTO imports (user_id, file_name, mode, tag_name, created_at) VALUES (?, ?, ?, ?, ?)", [
       user.id,
@@ -257,11 +264,13 @@ export async function startImport(input: {
  * `tagName` (optional) tags everyone added or updated, e.g. "Fully Paid – Oct 2026".
  * With `importId` (from startImport), every row is recorded in the import history.
  */
+export type ImportMode = Exclude<MergeChoice, "new">;
+
 export async function importContacts(
   rows: ImportRow[],
-  mode: "skip" | "update",
+  mode: ImportMode,
   tagName?: string,
-  importId?: number,
+  importId?: number | null,
 ): Promise<ImportResult> {
   const user = await actionUser(["admin"]);
   const touched: number[] = [];
@@ -281,35 +290,27 @@ export async function importContacts(
         continue;
       }
       const match = find(r.phone, r.email, r.alt_phone, r);
-      if (match) {
+      const choice = match ? (raw.choice ?? mode) : null;
+      if (match && choice !== "new") {
         const reason = `Matched existing contact ${match.name}`;
-        if (mode === "skip") {
+        if (choice === "skip") {
           result.skipped++;
           log.push({ action: "skipped", row: r.row, name: nameOf(r), contactId: match.id, reason });
           continue;
         }
-        // Only overwrite with non-empty incoming values. Keep what each field was, for the history.
-        const before = await get<Record<string, string | number>>(
-          `SELECT ${[...UPDATABLE, "active"].join(", ")} FROM contacts WHERE id = ?`,
-          [match.id],
-        );
-        const sets: string[] = [];
-        const vals: (string | number)[] = [];
+        // Read it fresh: an earlier row in this chunk may have changed it.
+        const before = await get<ExistingContact>(`SELECT ${CONTACT_COLS} FROM contacts WHERE id = ?`, [match.id]);
+        if (!before) continue;
+        const plan = planMerge(before, r, choice ?? mode);
+        const fields = Object.keys(plan) as (keyof typeof plan)[];
         const changes: Record<string, [string | number, string | number]> = {};
-        for (const k of UPDATABLE) {
-          if (r[k]) {
-            sets.push(`${k} = ?`);
-            vals.push(r[k]);
-            if (before && before[k] !== r[k]) changes[k] = [before[k] ?? "", r[k]];
-          }
-        }
-        if (r.active !== null) {
-          sets.push("active = ?");
-          vals.push(r.active);
-          if (before && before.active !== r.active) changes.active = [before.active, r.active];
-        }
-        if (sets.length) {
-          await run(`UPDATE contacts SET ${sets.join(", ")}, updated_at = ? WHERE id = ?`, [...vals, ts, match.id]);
+        for (const k of fields) changes[k] = [before[k] ?? "", plan[k]!];
+        if (fields.length) {
+          await run(`UPDATE contacts SET ${fields.map((k) => `${k} = ?`).join(", ")}, updated_at = ? WHERE id = ?`, [
+            ...fields.map((k) => plan[k]!),
+            ts,
+            match.id,
+          ]);
         }
         result.updated++;
         touched.push(match.id);
