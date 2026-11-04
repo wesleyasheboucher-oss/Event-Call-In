@@ -160,3 +160,41 @@ export function matchName<C extends Candidate>(raw: string, contacts: C[]): Name
   if (close.length) return { kind: "close", options: close.sort((a, b) => b.score - a.score).slice(0, 4) };
   return { kind: "none" };
 }
+
+export type NameComparison = { level: "same" | "close" | "different"; why?: string };
+
+const joined = (s: string) => normalizeName(s).replace(/ /g, "");
+
+/**
+ * Do two contacts' names belong to the same person? "same" ignores case, accents,
+ * punctuation, hyphens, spacing and middle names ("Mondejar moreno" = "Mondejar-Moreno",
+ * "De Paz" = "Depaz"). "close" is a likely match a person should confirm: one typo, a
+ * nickname, swapped first/last, one part of a two-part last name, or a short first name.
+ */
+export function compareNames(a: Candidate | Omit<Candidate, "id">, b: Candidate | Omit<Candidate, "id">): NameComparison {
+  const pa = contactParts(a as Candidate);
+  const pb = contactParts(b as Candidate);
+  if (!pa.first || !pb.first) return { level: "different" };
+  const lastA = joined(a.last_name);
+  const lastB = joined(b.last_name);
+  if (pa.first === pb.first && (pa.last === pb.last || (lastA && lastA === lastB))) return { level: "same" };
+
+  const c = compare(pa, pb);
+  if (c) return { level: "close", why: c.why };
+  if (pa.first === pb.first) {
+    const ta = normalizeName(a.last_name).split(" ").filter((t) => t.length >= 3);
+    const tb = new Set(normalizeName(b.last_name).split(" ").filter((t) => t.length >= 3));
+    if (ta.some((t) => tb.has(t))) return { level: "close", why: "part of a two-part last name" };
+  }
+  if (pa.last === pb.last || (lastA && lastA === lastB)) {
+    const [s, l] = pa.first.length <= pb.first.length ? [pa.first, pb.first] : [pb.first, pa.first];
+    if (s.length >= 3 && l.startsWith(s)) return { level: "close", why: `${s} / ${l}` };
+  }
+  return { level: "different" };
+}
+
+/** Same or close: good enough to treat a shared phone as the same person. */
+export const likelySamePerson = (a: Omit<Candidate, "id">, b: Omit<Candidate, "id">) => compareNames(a, b).level !== "different";
+
+/** Key for exact-name lookups that ignores case, accents, punctuation and spacing. */
+export const nameKey = (c: Omit<Candidate, "id">) => `${contactParts(c as Candidate).first}|${joined(c.last_name)}`;

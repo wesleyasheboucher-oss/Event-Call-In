@@ -42,6 +42,7 @@ import {
   type MergeChoice,
 } from "@/lib/import";
 import { downloadCsv } from "@/lib/csv";
+import { compareNames } from "@/lib/name-match";
 import { formatPhone } from "@/lib/phone";
 import { Page, PageHeader } from "@/components/page";
 import { Button, Card, cx, Select } from "@/components/ui";
@@ -880,7 +881,8 @@ function DuplicateList({
       new Map(
         rows.map((r) => {
           const c = r.match?.contact;
-          return [r.row, { phones: c ? newPhones(c, r) : [], nameDiffers: !!c && !sameName(c, r) }] as const;
+          const name = c ? compareNames(c, r) : null;
+          return [r.row, { phones: c ? newPhones(c, r) : [], nameDiffers: name?.level === "different", similarName: name?.level === "close" ? name.why : undefined }] as const;
         }),
       ),
     [rows],
@@ -942,12 +944,14 @@ function DuplicateCard({
   onChoice,
   phones,
   nameDiffers,
+  similarName,
 }: {
   r: Analyzed;
   choice: MergeChoice;
   onChoice: (c: MergeChoice) => void;
   phones: string[];
   nameDiffers: boolean;
+  similarName?: string;
 }) {
   const existing = r.match?.contact;
   const repeat = r.status === "in_file";
@@ -977,6 +981,11 @@ function DuplicateCard({
         {nameDiffers && (
           <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 ring-1 ring-amber-200 ring-inset">
             Different name: could be someone else
+          </span>
+        )}
+        {similarName && (
+          <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700 ring-1 ring-sky-200 ring-inset">
+            Similar name ({similarName})
           </span>
         )}
       </div>

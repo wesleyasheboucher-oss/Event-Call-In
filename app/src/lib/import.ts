@@ -2,6 +2,7 @@
 // Used on both the client (mapping step) and the server (analysis/import).
 
 import { formatPhone, isValidEmail, normalizeEmail, normalizePhone } from "./phone";
+import { likelySamePerson } from "./name-match";
 
 export const IMPORT_FIELDS = [
   { key: "full_name", label: "Full name", hint: "Split into first / last" },
@@ -195,10 +196,12 @@ export function rowError(r: Pick<MappedRow, "first_name" | "last_name" | "email"
   return null;
 }
 
-/** Same person by name (case and extra spaces ignored). Used with a shared phone to tell people apart. */
+/**
+ * Same person by name: case, accents, punctuation and spacing are ignored, and a typo,
+ * nickname or short form counts (see compareNames). Used with a shared phone to tell people apart.
+ */
 export function sameName(a: { first_name: string; last_name: string }, b: { first_name: string; last_name: string }): boolean {
-  const n = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-  return n(a.first_name) === n(b.first_name) && n(a.last_name) === n(b.last_name);
+  return likelySamePerson(a, b);
 }
 
 /** Drop rows that are entirely empty (common at the bottom of spreadsheets). */

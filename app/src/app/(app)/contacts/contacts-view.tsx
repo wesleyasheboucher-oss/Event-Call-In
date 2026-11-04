@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useListLayout } from "@/components/use-layout";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { toast } from "sonner";
-import { ArrowUp, Check, Download, History, Phone, Plus, Search, Settings2, Tag as TagIcon, Upload, Users, X } from "lucide-react";
+import { ArrowUp, Check, Copy, Download, History, Phone, Plus, Search, Settings2, Tag as TagIcon, Upload, Users, X } from "lucide-react";
 import type { ContactListRow } from "@/lib/queries";
 import type { TagWithCount } from "@/lib/tag-colors";
 import { TAG_STYLE } from "@/lib/tag-colors";
@@ -300,6 +300,11 @@ export function ContactsView({ contacts, tags }: { contacts: ContactListRow[]; t
             <Button variant="ghost" icon={<Download className="size-4" />} onClick={() => exportCsv(filtered, "contacts")}>
               <span className="hidden sm:inline">Export</span>
             </Button>
+            <Link href="/contacts/duplicates" title="Find duplicate contacts">
+              <Button variant="ghost" icon={<Copy className="size-4" />}>
+                <span className="hidden sm:inline">Duplicates</span>
+              </Button>
+            </Link>
             <Link href="/contacts/imports" title="Import history">
               <Button variant="ghost" icon={<History className="size-4" />}>
                 <span className="hidden sm:inline">History</span>

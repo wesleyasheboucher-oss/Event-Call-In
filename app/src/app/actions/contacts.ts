@@ -7,6 +7,7 @@ import { all, get, insert, now, run, tx } from "@/lib/db";
 import { isValidEmail, normalizeEmail, normalizePhone } from "@/lib/phone";
 import { MERGE_FIELDS, planMerge, rowError, sameName, type ExistingContact, type MappedRow, type MergeChoice } from "@/lib/import";
 import { CONTACT_DIVISIONS } from "@/lib/status";
+import { nameKey } from "@/lib/name-match";
 
 export type ContactInput = {
   first_name: string;
@@ -161,8 +162,6 @@ async function existingIndex() {
   const byPhone = new Map<string, Known[]>();
   const byEmail = new Map<string, Known>();
   const byName = new Map<string, Known>();
-  const nameKey = (k: { first_name: string; last_name: string }) =>
-    `${k.first_name} ${k.last_name}`.toLowerCase().replace(/\s+/g, " ").trim();
   for (const r of rows) {
     const m = { id: r.id, name: `${r.first_name} ${r.last_name}`, first_name: r.first_name, last_name: r.last_name, contact: r };
     for (const p of [r.phone, r.alt_phone]) if (p) byPhone.set(p, [...(byPhone.get(p) ?? []), m]);
