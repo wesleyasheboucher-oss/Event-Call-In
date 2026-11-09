@@ -35,7 +35,28 @@ export type CallInRow = {
   no_show_count: number;
   /** keyed by event id; missing = not on that event's list */
   cells: Record<number, CallInCell>;
+  /**
+   * When they last confirmed, keyed by event id, for any event (past ones too), and only
+   * where they're still Confirmed or Reconfirmed. Powers the "Confirmed recently" filter.
+   */
+  confirmed_at: Record<number, string>;
 };
+
+/** An event someone has confirmed for, as offered in the "Confirmed recently" filter. */
+export type ConfirmEvent = { id: number; name: string; start_at: string; time_zone: string };
+
+/** Events with a confirmation in the last year, newest event first. */
+export async function recentConfirmEvents(): Promise<ConfirmEvent[]> {
+  const since = new Date(Date.now() - 365 * 864e5).toISOString();
+  return all<ConfirmEvent>(
+    `SELECT e.id, e.name, e.start_at, e.time_zone FROM events e
+      WHERE e.archived_at IS NULL AND EXISTS (
+        SELECT 1 FROM registrations r JOIN status_changes s ON s.registration_id = r.id
+         WHERE r.event_id = e.id AND s.kind = 'rsvp' AND s.to_value IN ('confirmed', 'reconfirmed') AND s.created_at >= ?)
+      ORDER BY e.start_at DESC`,
+    [since],
+  );
+}
 
 export type CallInEvent = Pick<
   EventListItem,
@@ -83,7 +104,7 @@ export async function callableEvents(): Promise<CallInEvent[]> {
  * on at least one of those lists (what Call In shows first); `everyone` adds all contacts.
  */
 export async function getCallInRows(eventIds: number[], opts: { everyone?: boolean } = {}): Promise<CallInRow[]> {
-  const [contacts, regs] = await Promise.all([
+  const [contacts, regs, confirms] = await Promise.all([
     listContacts(),
     eventIds.length
       ? all<CallInCell & { contact_id: number; event_id: number }>(
@@ -101,7 +122,20 @@ export async function getCallInRows(eventIds: number[], opts: { everyone?: boole
           eventIds,
         )
       : Promise.resolve([]),
+    // Latest confirmation per person per event, where they're still confirmed.
+    all<{ contact_id: number; event_id: number; at: string }>(
+      `SELECT r.contact_id, r.event_id, MAX(s.created_at) AS at
+         FROM registrations r
+         JOIN status_changes s ON s.registration_id = r.id AND s.kind = 'rsvp' AND s.to_value IN ('confirmed', 'reconfirmed')
+        WHERE r.rsvp IN ('confirmed', 'reconfirmed')
+        GROUP BY r.contact_id, r.event_id`,
+    ),
   ]);
+  const confirmedBy = new Map<number, Record<number, string>>();
+  for (const c of confirms) {
+    if (!confirmedBy.has(c.contact_id)) confirmedBy.set(c.contact_id, {});
+    confirmedBy.get(c.contact_id)![c.event_id] = c.at;
+  }
 
   const cellsByContact = new Map<number, Record<number, CallInCell>>();
   for (const { contact_id, event_id, ...cell } of regs) {
@@ -125,5 +159,6 @@ export async function getCallInRows(eventIds: number[], opts: { everyone?: boole
     attended_count: c.attended_count,
     no_show_count: c.no_show_count,
     cells: cellsByContact.get(c.id) ?? {},
+    confirmed_at: confirmedBy.get(c.id) ?? {},
   }));
 }

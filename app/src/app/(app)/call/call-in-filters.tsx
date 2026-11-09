@@ -1,8 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Check } from "lucide-react";
-import type { CallInEvent } from "@/lib/call-in";
+import type { CallInEvent, ConfirmEvent } from "@/lib/call-in";
 import { RSVP, RSVP_STATUSES, type RsvpStatus } from "@/lib/status";
 import { TAG_STYLE, type TagWithCount } from "@/lib/tag-colors";
 import { fmt } from "@/lib/time";
@@ -16,6 +16,9 @@ export type Scope = "listed" | "everyone";
 
 export const statusKeyLabel = (k: StatusKey) => RSVP[k].label;
 
+/** "Confirmed for an event in the last N days". eventId null = any event. days null = off. */
+export type ConfirmedFilter = { eventId: number | null; days: number | null };
+
 export type CallInFilters = {
   scope: Scope;
   divisions: Set<number>;
@@ -23,7 +26,19 @@ export type CallInFilters = {
   activeOnly: boolean;
   status: StatusFilters;
   tags: Set<number>;
+  confirmed: ConfirmedFilter;
 };
+
+export const CONFIRMED_DAYS = [1, 7, 14, 30, 90];
+export const daysLabel = (d: number) => (d === 1 ? "24 hours" : `${d} days`);
+
+/** Did this person confirm (and stay confirmed) for the chosen event, or any event, within the window? */
+export function confirmedWithin(confirmedAt: Record<number, string>, f: ConfirmedFilter, now = Date.now()): boolean {
+  if (f.days == null) return true;
+  const since = new Date(now - f.days * 864e5).toISOString();
+  if (f.eventId != null) return (confirmedAt[f.eventId] ?? "") >= since;
+  return Object.values(confirmedAt).some((at) => at >= since);
+}
 
 export const NO_FILTERS: CallInFilters = {
   scope: "listed",
@@ -32,6 +47,7 @@ export const NO_FILTERS: CallInFilters = {
   activeOnly: false,
   status: {},
   tags: new Set(),
+  confirmed: { eventId: null, days: null },
 };
 
 /** How many filters differ from the defaults (shown on the Filters button). */
@@ -42,7 +58,8 @@ export function countFilters(f: CallInFilters, events: CallInEvent[]): number {
     (f.contactsOnly ? 1 : 0) +
     (f.activeOnly ? 1 : 0) +
     events.filter((e) => f.status[e.id]?.length).length +
-    f.tags.size
+    f.tags.size +
+    (f.confirmed.days != null ? 1 : 0)
   );
 }
 
@@ -62,6 +79,7 @@ export function CallInFilterSheet({
   open,
   onClose,
   events,
+  confirmEvents,
   tags,
   value,
   onChange,
@@ -70,6 +88,8 @@ export function CallInFilterSheet({
   open: boolean;
   onClose: () => void;
   events: CallInEvent[];
+  /** Events anyone confirmed for in the last year, for "Confirmed recently". */
+  confirmEvents: ConfirmEvent[];
   tags: TagWithCount[];
   value: CallInFilters;
   /** Receives an updater so quick successive taps each build on the latest filters. */
@@ -181,6 +201,12 @@ export function CallInFilterSheet({
           );
         })}
 
+        <ConfirmedSection
+          value={value.confirmed}
+          events={confirmEvents}
+          onChange={(confirmed) => set(() => ({ confirmed }))}
+        />
+
         {tags.length > 0 && (
           <Section title="Tags" onClear={value.tags.size ? () => set(() => ({ tags: new Set() })) : undefined}>
             <div className="flex flex-wrap gap-1.5">
@@ -200,6 +226,67 @@ export function CallInFilterSheet({
         )}
       </div>
     </BottomSheet>
+  );
+}
+
+function ConfirmedSection({
+  value,
+  events,
+  onChange,
+}: {
+  value: ConfirmedFilter;
+  events: ConfirmEvent[];
+  onChange: (v: ConfirmedFilter) => void;
+}) {
+  const custom = value.days != null && !CONFIRMED_DAYS.includes(value.days);
+  const [customText, setCustomText] = useState(custom ? String(value.days) : "");
+  return (
+    <Section title="Confirmed recently" onClear={value.days != null ? () => onChange({ eventId: null, days: null }) : undefined}>
+      <p className="-mt-1 mb-2.5 text-xs text-ink-3">People who confirmed in this time and are still confirmed.</p>
+      <select
+        value={value.eventId ?? ""}
+        onChange={(e) => onChange({ ...value, eventId: e.target.value ? Number(e.target.value) : null, days: value.days ?? 7 })}
+        className="mb-2.5 h-10 w-full rounded-xl bg-surface px-3 text-sm text-ink ring-1 ring-border ring-inset focus:ring-2 focus:ring-accent focus:outline-none"
+      >
+        <option value="">For any event</option>
+        {events.map((e) => (
+          <option key={e.id} value={e.id}>
+            For {e.name} · {fmt(e.start_at, e.time_zone, "MMM d, yyyy")}
+          </option>
+        ))}
+      </select>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {CONFIRMED_DAYS.map((d) => (
+          <Chip key={d} on={value.days === d} onClick={() => onChange({ ...value, days: value.days === d ? null : d })}>
+            Last {daysLabel(d)}
+          </Chip>
+        ))}
+        <label
+          className={cx(
+            "inline-flex h-9 items-center gap-1.5 rounded-full pr-3 pl-3 text-[13px] font-medium ring-1 ring-inset",
+            custom ? "bg-ink text-white ring-ink" : "bg-surface text-ink-2 ring-border",
+          )}
+        >
+          Last
+          <input
+            inputMode="numeric"
+            value={customText}
+            placeholder="#"
+            onChange={(e) => {
+              const t = e.target.value.replace(/\D/g, "").slice(0, 3);
+              setCustomText(t);
+              if (Number(t) > 0) onChange({ ...value, days: Number(t) });
+            }}
+            className={cx(
+              "w-9 rounded-md bg-transparent text-center tabular-nums outline-none placeholder:opacity-60",
+              custom ? "bg-white/15" : "bg-surface-2",
+            )}
+            aria-label="Number of days"
+          />
+          days
+        </label>
+      </div>
+    </Section>
   );
 }
 

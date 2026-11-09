@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { all } from "@/lib/db";
-import { callableEvents, getCallInRows } from "@/lib/call-in";
+import { callableEvents, getCallInRows, recentConfirmEvents } from "@/lib/call-in";
 import { listTags } from "@/lib/tags";
 import { CallIn } from "./call-in";
 
@@ -12,7 +12,7 @@ import { CallIn } from "./call-in";
  */
 export default async function CallInPage(props: PageProps<"/call">) {
   const user = await requireUser(["caller"]);
-  const [events, tags, sp] = await Promise.all([callableEvents(), listTags(), props.searchParams]);
+  const [events, tags, confirmEvents, sp] = await Promise.all([callableEvents(), listTags(), recentConfirmEvents(), props.searchParams]);
   const param = typeof sp.e === "string" ? sp.e : undefined;
 
   let selectedIds: number[];
@@ -31,5 +31,14 @@ export default async function CallInPage(props: PageProps<"/call">) {
 
   const everyone = sp.all === "1";
   const rows = await getCallInRows(selectedIds, { everyone });
-  return <CallIn events={events} selectedIds={selectedIds} everyone={everyone} initialRows={rows} tags={tags} />;
+  return (
+    <CallIn
+      events={events}
+      selectedIds={selectedIds}
+      everyone={everyone}
+      initialRows={rows}
+      tags={tags}
+      confirmEvents={confirmEvents}
+    />
+  );
 }

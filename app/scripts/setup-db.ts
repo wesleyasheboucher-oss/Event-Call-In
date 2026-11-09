@@ -37,7 +37,9 @@ if (!url) {
   process.exit(1);
 }
 
-const sql = postgres(url, { prepare: false, max: 1, onnotice: () => {} });
+// Fail fast instead of hanging: a paused project or a table busy with another connection
+// should say so, not leave the terminal waiting with no output.
+const sql = postgres(url, { prepare: false, max: 1, onnotice: () => {}, connect_timeout: 15 });
 
 const execFor =
   (s: typeof sql): Exec =>
@@ -47,10 +49,17 @@ const execFor =
   };
 
 async function main() {
+  console.log("… Connecting to the database");
+  await sql`SELECT 1`;
   const migrations = path.join(process.cwd(), "supabase", "migrations");
   for (const file of fs.readdirSync(migrations).filter((f) => f.endsWith(".sql")).sort()) {
-    await sql.unsafe(fs.readFileSync(path.join(migrations, file), "utf8"));
-    console.log(`✓ Applied ${file}`);
+    process.stdout.write(`… ${file}`);
+    // Give up on a table that's locked by another connection rather than waiting forever.
+    await sql.begin(async (tx) => {
+      await tx.unsafe("SET LOCAL lock_timeout = '15s'");
+      await tx.unsafe(fs.readFileSync(path.join(migrations, file), "utf8"));
+    });
+    process.stdout.write(`\r✓ Applied ${file}\n`);
   }
 
   const [{ n }] = await sql<{ n: number }[]>`SELECT COUNT(*)::int AS n FROM users`;
@@ -103,7 +112,11 @@ async function main() {
 
 main()
   .catch((err) => {
-    console.error("✗", err.message ?? err);
+    console.error("\n✗", err.message ?? err);
+    if (/timeout|ETIMEDOUT|ENOTFOUND|ECONNREFUSED/i.test(String(err.message ?? err)))
+      console.error("  Couldn't reach the database. Is the Supabase project paused? Check the dashboard, then try again.");
+    if (/lock timeout/i.test(String(err.message ?? err)))
+      console.error("  A table was busy with another connection. Wait a minute and run this again.");
     process.exitCode = 1;
   })
   .finally(() => sql.end());

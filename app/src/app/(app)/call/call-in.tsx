@@ -7,7 +7,7 @@ import { useListLayout } from "@/components/use-layout";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { toast } from "sonner";
 import { AlertTriangle, Check, Download, FileSpreadsheet, FileText, ListFilter, Phone, Search, UserPlus, Users, X } from "lucide-react";
-import type { CallInCell, CallInEvent, CallInRow } from "@/lib/call-in";
+import type { CallInCell, CallInEvent, CallInRow, ConfirmEvent } from "@/lib/call-in";
 import { RSVP, type RsvpStatus } from "@/lib/status";
 import type { TagWithCount } from "@/lib/tag-colors";
 import { formatPhone, normalizePhone, telHref } from "@/lib/phone";
@@ -18,7 +18,7 @@ import { EventCover } from "@/components/event-cover";
 import { ContactDivisionMini } from "@/components/division";
 import { Avatar, cx, EmptyState, Select } from "@/components/ui";
 import { StatusMenu, type MenuTarget } from "./status-menu";
-import { CallInFilterSheet, countFilters, NO_FILTERS, statusKeyLabel, type CallInFilters } from "./call-in-filters";
+import { CallInFilterSheet, confirmedWithin, countFilters, daysLabel, NO_FILTERS, statusKeyLabel, type CallInFilters } from "./call-in-filters";
 import { exportExcel, exportPdf } from "./call-in-export";
 import { CallInDrawer } from "./call-in-drawer";
 
@@ -39,12 +39,14 @@ export function CallIn({
   everyone,
   initialRows,
   tags,
+  confirmEvents,
 }: {
   events: CallInEvent[];
   selectedIds: number[];
   everyone: boolean;
   initialRows: CallInRow[];
   tags: TagWithCount[];
+  confirmEvents: ConfirmEvent[];
 }) {
   const router = useRouter();
   const layout = useListLayout();
@@ -61,7 +63,7 @@ export function CallIn({
   const [query, setQuery] = useState("");
   const q = useDeferredValue(query);
   const [filters, setFilters] = useState<CallInFilters>(() => ({ ...NO_FILTERS, scope: everyone ? "everyone" : "listed" }));
-  const { scope, divisions, contactsOnly, activeOnly, status: statusFilters, tags: tagFilter } = filters;
+  const { scope, divisions, contactsOnly, activeOnly, status: statusFilters, tags: tagFilter, confirmed } = filters;
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Latest filters for back-to-back taps that land before a re-render.
   const filtersRef = useRef(filters);
@@ -96,6 +98,7 @@ export function CallIn({
         if (picks?.length && !picks.includes(r.cells[e.id]?.status ?? "no_data")) return false;
       }
       if (tagFilter.size && !r.tag_ids.some((id) => tagFilter.has(id))) return false;
+      if (!confirmedWithin(r.confirmed_at, confirmed)) return false;
       if (!text) return true;
       return (
         `${r.first_name} ${r.last_name}`.toLowerCase().includes(text) ||
@@ -110,7 +113,7 @@ export function CallIn({
     if (sort === "name") list.sort(byName);
     else list.sort((a, b) => (sort === "least_recent" ? 1 : -1) * lastCalled(a).localeCompare(lastCalled(b)) || byName(a, b));
     return list;
-  }, [rows, selected, scope, statusFilters, divisions, contactsOnly, activeOnly, tagFilter, q, sort]);
+  }, [rows, selected, scope, statusFilters, divisions, contactsOnly, activeOnly, tagFilter, confirmed, q, sort]);
 
   // Per-event counts for the column headers / event chips.
   const counts = useMemo(() => {
@@ -137,7 +140,17 @@ export function CallIn({
         if (full) cells[eventId] = full;
         else if (p === null) delete cells[eventId];
         else if (cells[eventId]) cells[eventId] = { ...cells[eventId], ...p };
-        return { ...r, cells };
+        // A confirmation made here counts for "Confirmed recently" right away; a change away from it removes it.
+        const status = (full ?? p)?.status ?? (p === null ? "no_data" : undefined);
+        let confirmed_at = r.confirmed_at;
+        if (status) {
+          confirmed_at = { ...r.confirmed_at };
+          const was = r.cells[eventId]?.status;
+          if (status === "confirmed" || status === "reconfirmed") {
+            if (was !== "confirmed" && was !== "reconfirmed") confirmed_at[eventId] = new Date().toISOString();
+          } else delete confirmed_at[eventId];
+        }
+        return { ...r, cells, confirmed_at };
       }),
     );
   }, []);
@@ -262,6 +275,15 @@ export function CallIn({
       label: `${shortName(e.name)}: ${statusFilters[e.id].map(statusKeyLabel).join(", ")}`,
       clear: (f: CallInFilters) => ({ status: { ...f.status, [e.id]: [] } }),
     })),
+    ...(confirmed.days != null
+      ? [
+          {
+            key: "confirmed",
+            label: `Confirmed${confirmed.eventId != null ? ` for ${shortName(confirmEvents.find((e) => e.id === confirmed.eventId)?.name ?? "event")}` : ""} in last ${daysLabel(confirmed.days)}`,
+            clear: () => ({ confirmed: { eventId: null, days: null } }),
+          },
+        ]
+      : []),
     ...[...tagFilter].map((id) => ({
       key: `tag${id}`,
       label: tagName.get(id) ?? "Tag",
@@ -618,6 +640,7 @@ export function CallIn({
         open={filtersOpen}
         onClose={() => setFiltersOpen(false)}
         events={selected}
+        confirmEvents={confirmEvents}
         tags={tags}
         value={filters}
         onChange={changeFilters}
