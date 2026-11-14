@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronLeft, ChevronRight, Phone, Send, UserPlus } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, MessageSquareText, Phone, Send, UserPlus } from "lucide-react";
 import type { CallInCell, CallInEvent, CallInRow } from "@/lib/call-in";
 import type { GuestRow } from "@/lib/types";
 import type { RsvpStatus } from "@/lib/status";
@@ -31,6 +31,7 @@ export function CallInDrawer({
   onDivision,
   onActive,
   onOpenContact,
+  onText,
   hasPrev,
   hasNext,
   onPrev,
@@ -45,6 +46,8 @@ export function CallInDrawer({
   onActive: (active: number) => void;
   /** Jump to another person's drawer (e.g. a guest's host). */
   onOpenContact: (contactId: number) => void;
+  /** Opens the "share via text" sheet for this person */
+  onText: () => void;
   hasPrev: boolean;
   hasNext: boolean;
   onPrev: () => void;
@@ -155,9 +158,10 @@ export function CallInDrawer({
             className="space-y-8 px-5 py-6 sm:px-6"
           >
             {row.phone ? (
+              <div className="flex gap-2">
               <a
                 href={telHref(row.phone)}
-                className="group flex items-center justify-between rounded-2xl bg-accent px-5 py-4 text-white shadow-lg shadow-indigo-500/20 transition-transform active:scale-[0.99]"
+                className="group flex min-w-0 flex-1 items-center justify-between rounded-2xl bg-accent px-5 py-4 text-white shadow-lg shadow-indigo-500/20 transition-transform active:scale-[0.99]"
               >
                 <span>
                   <span className="block text-xs text-white/70">Tap to call</span>
@@ -167,6 +171,15 @@ export function CallInDrawer({
                   <Phone className="size-5" />
                 </span>
               </a>
+              <button
+                type="button"
+                onClick={onText}
+                className="flex w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/20 transition-transform active:scale-[0.97]"
+              >
+                <MessageSquareText className="size-5" />
+                <span className="text-xs font-semibold">Text</span>
+              </button>
+              </div>
             ) : (
               <div className="rounded-2xl bg-surface-2 px-5 py-4 text-sm text-ink-2">No phone on file. Try email instead.</div>
             )}

@@ -15,6 +15,7 @@ import {
   LogOut,
   MoreHorizontal,
   PhoneCall,
+  MessageSquareText,
   Trophy,
   UserCog,
   Users,
@@ -31,6 +32,7 @@ const NAV: { href: string; label: string; icon: typeof Home; roles: Role[] }[] =
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy, roles: ["admin", "caller", "signin"] },
   { href: "/signin", label: "Sign-in", icon: ClipboardCheck, roles: ["admin", "signin"] },
   { href: "/contacts", label: "Contacts", icon: Users, roles: ["admin"] },
+  { href: "/texts", label: "Text templates", icon: MessageSquareText, roles: ["admin"] },
   { href: "/reports", label: "Reports", icon: BarChart3, roles: ["admin"] },
   { href: "/users", label: "Team", icon: UserCog, roles: ["admin"] },
 ];

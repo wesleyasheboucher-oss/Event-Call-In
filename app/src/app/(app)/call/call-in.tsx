@@ -6,8 +6,10 @@ import { motion } from "motion/react";
 import { useListLayout } from "@/components/use-layout";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { toast } from "sonner";
-import { AlertTriangle, Check, Download, FileSpreadsheet, FileText, ListFilter, Phone, Search, UserPlus, Users, X } from "lucide-react";
+import { AlertTriangle, Check, Download, FileSpreadsheet, FileText, ListFilter, MessageSquareText, Phone, Search, UserPlus, Users, X } from "lucide-react";
 import type { CallInCell, CallInEvent, CallInRow, ConfirmEvent } from "@/lib/call-in";
+import type { TextEvent, TextTemplate } from "@/lib/texting";
+import { TextSheet } from "@/components/text-sheet";
 import { RSVP, type RsvpStatus } from "@/lib/status";
 import type { TagWithCount } from "@/lib/tag-colors";
 import { formatPhone, normalizePhone, telHref } from "@/lib/phone";
@@ -40,6 +42,9 @@ export function CallIn({
   initialRows,
   tags,
   confirmEvents,
+  textTemplates,
+  textEvents,
+  me,
 }: {
   events: CallInEvent[];
   selectedIds: number[];
@@ -47,6 +52,10 @@ export function CallIn({
   initialRows: CallInRow[];
   tags: TagWithCount[];
   confirmEvents: ConfirmEvent[];
+  textTemplates: TextTemplate[];
+  textEvents: TextEvent[];
+  /** the signed-in caller's name, for {my_name} in texts */
+  me: string;
 }) {
   const router = useRouter();
   const layout = useListLayout();
@@ -72,6 +81,7 @@ export function CallIn({
   const [sort, setSort] = useState<Sort>("name");
   const [limit, setLimit] = useState(PAGE);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [textId, setTextId] = useState<number | null>(null);
   const [menu, setMenu] = useState<(MenuTarget & { contactId: number; eventId: number }) | null>(null);
 
   // Changing which events are included (or Everyone) updates the URL; the server sends fresh rows.
@@ -239,6 +249,7 @@ export function CallIn({
 
   const openIndex = filtered.findIndex((r) => r.contact_id === openId);
   const openRow = rows.find((r) => r.contact_id === openId) ?? null;
+  const textRow = rows.find((r) => r.contact_id === textId) ?? null;
 
   const activeStatusFilters = selected.filter((e) => statusFilters[e.id]?.length);
   const filterSummary = [
@@ -564,6 +575,20 @@ export function CallIn({
                                 <Phone className="size-3.5 text-accent" />
                                 {formatPhone(r.phone)}
                               </a>
+                            ) : null}
+                            {r.phone || r.alt_phone ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTextId(r.contact_id);
+                                }}
+                                title={`Text ${name}`}
+                                aria-label={`Text ${name}`}
+                                className="ml-1 inline-flex size-7 items-center justify-center rounded-lg text-emerald-700 transition-colors hover:bg-emerald-50"
+                              >
+                                <MessageSquareText className="size-3.5" />
+                              </button>
                             ) : (
                               <span className="px-2 text-ink-3">No phone</span>
                             )}
@@ -612,6 +637,19 @@ export function CallIn({
                           >
                             <Phone className="size-4" />
                           </a>
+                        )}
+                        {(r.phone || r.alt_phone) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTextId(r.contact_id);
+                            }}
+                            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-md shadow-emerald-600/20"
+                            aria-label={`Text ${name}`}
+                          >
+                            <MessageSquareText className="size-4" />
+                          </button>
                         )}
                       </div>
                       <div className="mt-3 space-y-1.5 pl-12">
@@ -664,6 +702,7 @@ export function CallIn({
         onPatchCell={(eventId, p) => openRow && patchCell(openRow.contact_id, eventId, p)}
         onDivision={(division) => openRow && setDivision(openRow.contact_id, division)}
         onOpenContact={setOpenId}
+        onText={() => openRow && setTextId(openRow.contact_id)}
         onActive={(active) =>
           openRow && setRows((rs) => rs.map((r) => (r.contact_id === openRow.contact_id ? { ...r, active } : r)))
         }
@@ -671,6 +710,17 @@ export function CallIn({
         hasNext={openIndex >= 0 && openIndex < filtered.length - 1}
         onPrev={() => openIndex > 0 && setOpenId(filtered[openIndex - 1].contact_id)}
         onNext={() => openIndex < filtered.length - 1 && setOpenId(filtered[openIndex + 1].contact_id)}
+      />
+
+      <TextSheet
+        open={textRow != null}
+        onClose={() => setTextId(null)}
+        person={textRow}
+        templates={textTemplates}
+        events={textEvents}
+        // The selected events they're on come first; otherwise any selected event.
+        eventIds={textRow ? [...selected.filter((e) => textRow.cells[e.id]), ...selected.filter((e) => !textRow.cells[e.id])].map((e) => e.id) : []}
+        me={me}
       />
     </div>
   );
